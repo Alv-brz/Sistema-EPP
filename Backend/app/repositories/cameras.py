@@ -49,7 +49,7 @@ class CameraRepository:
             **area_fields,
             "location": area_fields.get("location", data.get("location", "")),
             "source_type": data.get("source_type", "webcam"),
-            "source_url": data.get("source_url") or "0",
+            "source_url": data.get("source_url") or ("0" if data.get("source_type", "webcam") == "webcam" else None),
             "code": f"CAM-{next_number:02d}",
             "created_at": now,
             "updated_at": now,

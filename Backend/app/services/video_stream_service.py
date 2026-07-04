@@ -150,6 +150,15 @@ class VideoStreamManager:
         worker = self._workers.get(camera_id)
         return bool(worker and worker.running)
 
+    def active_webcam_sources(self) -> set[int]:
+        sources: set[int] = set()
+        with self._lock:
+            workers = list(self._workers.values())
+        for worker in workers:
+            if worker.running and isinstance(worker.source, int):
+                sources.add(worker.source)
+        return sources
+
     def start(
         self,
         camera_id: str,

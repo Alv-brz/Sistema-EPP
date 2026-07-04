@@ -56,3 +56,10 @@ class CameraUpdate(BaseModel):
     source_url: str | None = None
     resolution: str | None = None
     fps: int | None = None
+
+
+class WebcamDevice(BaseModel):
+    index: int
+    name: str
+    source_url: str
+    in_use: bool = False

@@ -27,6 +27,13 @@ export interface ApiCamera {
   updated_at: string;
 }
 
+export interface WebcamDevice {
+  index: number;
+  name: string;
+  source_url: string;
+  in_use: boolean;
+}
+
 export type CameraPayload = {
   name: string;
   location: string;
@@ -232,6 +239,10 @@ export function deleteArea(id: string): Promise<void> {
 
 export function listCameras(): Promise<ApiCamera[]> {
   return apiRequest<ApiCamera[]>('/cameras');
+}
+
+export function listWebcams(): Promise<WebcamDevice[]> {
+  return apiRequest<WebcamDevice[]>('/cameras/webcams');
 }
 
 export function createCamera(payload: CameraPayload): Promise<ApiCamera> {

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Camera, Plus, Edit, Trash2, Power, Settings, Search, X, MapPin, Wifi } from 'lucide-react';
+import { Camera, Plus, Edit, Trash2, Power, RefreshCw, Search, X, MapPin, Wifi } from 'lucide-react';
 import { toast } from 'sonner';
-import { ApiArea, ApiCamera, createCamera, deleteCamera, getAreas, getCameraStreamUrl, listCameras, startCamera, stopCamera, updateCamera } from '../services/api';
+import { ApiArea, ApiCamera, WebcamDevice, createCamera, deleteCamera, getAreas, getCameraStreamUrl, listCameras, listWebcams, startCamera, stopCamera, updateCamera } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import { canControlCameras, canManageCameras } from '../auth/permissions';
 
@@ -58,12 +58,16 @@ export function CamerasPage() {
   const allowControlCameras = canControlCameras(user?.role);
   const [cameras, setCameras] = useState<CameraData[]>([]);
   const [areas, setAreas] = useState<ApiArea[]>([]);
+  const [webcams, setWebcams] = useState<WebcamDevice[]>([]);
+  const [loadingWebcams, setLoadingWebcams] = useState(false);
   const [cameraCodes, setCameraCodes] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [editingCamera, setEditingCamera] = useState<CameraData | null>(null);
   const [cameraToDelete, setCameraToDelete] = useState<CameraData | null>(null);
+  const [confirmSourceChangeOpen, setConfirmSourceChangeOpen] = useState(false);
+  const [sourceMode, setSourceMode] = useState<'webcam' | 'rtsp' | 'ip'>('webcam');
   const [formData, setFormData] = useState({
     name: '',
     location: '',
@@ -81,6 +85,30 @@ export function CamerasPage() {
     const response = await getAreas();
     setAreas(response);
     return response;
+  };
+
+  const loadWebcams = async () => {
+    if (!allowManageCameras) return;
+    try {
+      setLoadingWebcams(true);
+      const devices = await listWebcams();
+      setWebcams(devices);
+      if (devices[0]) {
+        setFormData((current) => (
+          current.sourceType === 'webcam' && !current.sourceUrl
+            ? { ...current, sourceUrl: devices[0].source_url }
+            : current
+        ));
+      }
+      if (devices.length === 0) {
+        toast.info('No se detectaron webcams locales');
+      }
+    } catch {
+      setWebcams([]);
+      toast.error('No se pudieron detectar webcams');
+    } finally {
+      setLoadingWebcams(false);
+    }
   };
 
   const loadCameras = async () => {
@@ -107,7 +135,9 @@ export function CamerasPage() {
     if (!allowManageCameras) return;
     setEditingCamera(null);
     loadAreas().catch(() => toast.error('No se pudieron cargar las áreas'));
-    setFormData({ name: '', location: '', areaId: '', areaName: '', ip: '', status: 'online', sourceType: 'webcam', sourceUrl: '0', resolution: '1920x1080', fps: 30 });
+    setSourceMode('webcam');
+    setFormData({ name: '', location: '', areaId: '', areaName: '', ip: '', status: 'online', sourceType: 'webcam', sourceUrl: '', resolution: '1920x1080', fps: 30 });
+    loadWebcams();
     setShowModal(true);
   };
 
@@ -115,6 +145,9 @@ export function CamerasPage() {
     if (!allowManageCameras) return;
     setEditingCamera(camera);
     loadAreas().catch(() => toast.error('No se pudieron cargar las áreas'));
+    const defaultIpUrl = camera.ip ? `rtsp://${camera.ip}/stream1` : '';
+    const nextSourceMode = camera.sourceType === 'webcam' ? 'webcam' : (!camera.sourceUrl || camera.sourceUrl === defaultIpUrl ? 'ip' : 'rtsp');
+    setSourceMode(nextSourceMode);
     setFormData({
       name: camera.name,
       location: camera.location,
@@ -127,54 +160,88 @@ export function CamerasPage() {
       resolution: camera.resolution,
       fps: camera.fps,
     });
+    if (nextSourceMode === 'webcam') {
+      loadWebcams();
+    }
     setShowModal(true);
+  };
+
+  const buildCameraPayload = () => {
+    const selectedArea = areas.find(area => area.id === formData.areaId);
+    const areaName = selectedArea?.name ?? formData.areaName;
+    const payloadSourceType = sourceMode === 'webcam' ? 'webcam' : 'rtsp';
+    const payloadSourceUrl = sourceMode === 'ip' ? null : formData.sourceUrl;
+    const payloadIp = sourceMode === 'webcam' ? (formData.ip || 'local') : formData.ip;
+    return {
+      name: formData.name,
+      location: areaName,
+      area_id: formData.areaId,
+      area_name: areaName,
+      ip: payloadIp,
+      status: formData.status,
+      source_type: payloadSourceType,
+      source_url: payloadSourceUrl,
+      resolution: formData.resolution,
+      fps: formData.fps,
+    };
+  };
+
+  const sourceChanged = () => {
+    if (!editingCamera) return false;
+    const payload = buildCameraPayload();
+    return (
+      editingCamera.sourceType !== payload.source_type ||
+      (editingCamera.sourceUrl || null) !== (payload.source_url || null) ||
+      editingCamera.ip !== payload.ip
+    );
+  };
+
+  const persistCamera = async (restartActiveStream: boolean) => {
+    const payload = buildCameraPayload();
+    if (editingCamera) {
+      let updated = await updateCamera(editingCamera.id, payload);
+      if (restartActiveStream) {
+        await stopCamera(editingCamera.id);
+        updated = await startCamera(editingCamera.id);
+      }
+      setCameras(cameras.map(c => c.id === editingCamera.id ? fromApiCamera(updated) : c));
+      setCameraCodes({ ...cameraCodes, [updated.id]: updated.code });
+      toast.success(restartActiveStream ? 'Cámara actualizada y reiniciada correctamente' : 'Cámara actualizada correctamente');
+    } else {
+      const created = await createCamera(payload);
+      setCameras([...cameras, fromApiCamera(created)]);
+      setCameraCodes({ ...cameraCodes, [created.id]: created.code });
+      toast.success('Cámara creada correctamente');
+    }
+    setShowModal(false);
+    setConfirmSourceChangeOpen(false);
   };
 
   const handleSave = async () => {
     if (!allowManageCameras) return;
-    if (!formData.name || !formData.areaId || !formData.ip) {
+    if (!formData.name || !formData.areaId) {
       toast.error('Por favor completa todos los campos');
       return;
     }
-
-    const selectedArea = areas.find(area => area.id === formData.areaId);
-    const areaName = selectedArea?.name ?? formData.areaName;
+    if (sourceMode === 'webcam' && !formData.sourceUrl) {
+      toast.error('Selecciona una webcam local');
+      return;
+    }
+    if (sourceMode === 'rtsp' && !formData.sourceUrl.trim()) {
+      toast.error('Ingresa la URL RTSP');
+      return;
+    }
+    if (sourceMode === 'ip' && !formData.ip.trim()) {
+      toast.error('Ingresa la IP de la cámara');
+      return;
+    }
+    if (editingCamera?.isStreaming && sourceChanged()) {
+      setConfirmSourceChangeOpen(true);
+      return;
+    }
 
     try {
-      if (editingCamera) {
-        const updated = await updateCamera(editingCamera.id, {
-          name: formData.name,
-          location: areaName,
-          area_id: formData.areaId,
-          area_name: areaName,
-          ip: formData.ip,
-          status: formData.status,
-          source_type: formData.sourceType,
-          source_url: formData.sourceUrl,
-          resolution: formData.resolution,
-          fps: formData.fps,
-        });
-        setCameras(cameras.map(c => c.id === editingCamera.id ? fromApiCamera(updated) : c));
-        setCameraCodes({ ...cameraCodes, [updated.id]: updated.code });
-        toast.success('Cámara actualizada correctamente');
-      } else {
-        const created = await createCamera({
-          name: formData.name,
-          location: areaName,
-          area_id: formData.areaId,
-          area_name: areaName,
-          ip: formData.ip,
-          status: formData.status,
-          source_type: formData.sourceType,
-          source_url: formData.sourceUrl,
-          resolution: formData.resolution,
-          fps: formData.fps,
-        });
-        setCameras([...cameras, fromApiCamera(created)]);
-        setCameraCodes({ ...cameraCodes, [created.id]: created.code });
-        toast.success('Cámara creada correctamente');
-      }
-      setShowModal(false);
+      await persistCamera(false);
     } catch {
       toast.error('No se pudo guardar la cámara');
     }
@@ -209,6 +276,35 @@ export function CamerasPage() {
     camera.areaName.toLowerCase().includes(searchTerm.toLowerCase()) ||
     (cameraCodes[camera.id] ?? camera.id).toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  const webcamOptions = webcams.some((device) => device.source_url === formData.sourceUrl) || sourceMode !== 'webcam' || !editingCamera || !formData.sourceUrl
+    ? webcams
+    : [
+        ...webcams,
+        {
+          index: Number(formData.sourceUrl),
+          name: `Webcam #${formData.sourceUrl}`,
+          source_url: formData.sourceUrl,
+          in_use: editingCamera?.isStreaming ?? false,
+        },
+      ];
+
+  const handleSourceModeChange = (mode: 'webcam' | 'rtsp' | 'ip') => {
+    setSourceMode(mode);
+    if (mode === 'webcam') {
+      const selectedWebcam = webcams[0]?.source_url ?? (formData.sourceType === 'webcam' ? formData.sourceUrl : '');
+      setFormData({ ...formData, sourceType: 'webcam', sourceUrl: selectedWebcam });
+      if (webcams.length === 0) {
+        loadWebcams();
+      }
+      return;
+    }
+    setFormData({
+      ...formData,
+      sourceType: 'rtsp',
+      sourceUrl: mode === 'rtsp' && formData.sourceType === 'rtsp' ? formData.sourceUrl : '',
+    });
+  };
 
   return (
     <div className="flex-1 overflow-auto">
@@ -424,43 +520,92 @@ export function CamerasPage() {
                   </div>
                 </div>
 
-                <div>
-                  <label className="block text-gray-400 text-sm mb-2">Dirección IP</label>
-                  <input
-                    type="text"
-                    value={formData.ip}
-                    onChange={(e) => setFormData({ ...formData, ip: e.target.value })}
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white font-mono focus:outline-none focus:border-blue-500"
-                    placeholder="192.168.1.100"
-                  />
-                </div>
-
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-gray-400 text-sm mb-2">Tipo de Fuente</label>
                     <select
-                      value={formData.sourceType}
-                      onChange={(e) => setFormData({ ...formData, sourceType: e.target.value as 'webcam' | 'rtsp', sourceUrl: e.target.value === 'webcam' ? '0' : formData.sourceUrl })}
+                      value={sourceMode}
+                      onChange={(e) => handleSourceModeChange(e.target.value as 'webcam' | 'rtsp' | 'ip')}
                       className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-blue-500"
                     >
                       <option value="webcam">Webcam Local</option>
-                      <option value="rtsp">RTSP / IP</option>
+                      <option value="rtsp">RTSP</option>
+                      <option value="ip">Cámara IP</option>
                     </select>
                   </div>
 
+                  {sourceMode === 'webcam' && (
+                    <div>
+                      <label className="block text-gray-400 text-sm mb-2">Webcam Local</label>
+                      <select
+                        value={formData.sourceUrl}
+                        onChange={(e) => setFormData({ ...formData, sourceUrl: e.target.value })}
+                        className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-blue-500"
+                      >
+                        {webcamOptions.length === 0 ? (
+                          <option value="">No hay webcams detectadas</option>
+                        ) : (
+                          webcamOptions.map((device) => (
+                            <option key={device.source_url} value={device.source_url}>
+                              {device.name} ({device.index}){device.in_use ? ' - en uso' : ''}
+                            </option>
+                          ))
+                        )}
+                      </select>
+                    </div>
+                  )}
+
+                  {sourceMode === 'rtsp' && (
+                    <div>
+                      <label className="block text-gray-400 text-sm mb-2">URL RTSP</label>
+                      <input
+                        type="text"
+                        value={formData.sourceUrl}
+                        onChange={(e) => setFormData({ ...formData, sourceUrl: e.target.value })}
+                        className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white font-mono focus:outline-none focus:border-blue-500"
+                        placeholder="rtsp://usuario:clave@ip/stream1"
+                      />
+                    </div>
+                  )}
+
+                  {sourceMode === 'ip' && (
+                    <div>
+                      <label className="block text-gray-400 text-sm mb-2">Dirección IP</label>
+                      <input
+                        type="text"
+                        value={formData.ip}
+                        onChange={(e) => setFormData({ ...formData, ip: e.target.value })}
+                        className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white font-mono focus:outline-none focus:border-blue-500"
+                        placeholder="192.168.1.100"
+                      />
+                    </div>
+                  )}
+                </div>
+
+                {sourceMode === 'webcam' && (
+                  <button
+                    type="button"
+                    onClick={loadWebcams}
+                    disabled={loadingWebcams}
+                    className="w-full flex items-center justify-center gap-2 bg-gray-800 hover:bg-gray-700 disabled:opacity-60 text-white px-4 py-2.5 rounded-lg transition-colors"
+                  >
+                    <RefreshCw className={`w-4 h-4 ${loadingWebcams ? 'animate-spin' : ''}`} />
+                    {loadingWebcams ? 'Detectando dispositivos...' : 'Actualizar dispositivos'}
+                  </button>
+                )}
+
+                {sourceMode !== 'ip' && (
                   <div>
-                    <label className="block text-gray-400 text-sm mb-2">
-                      {formData.sourceType === 'webcam' ? 'Índice Webcam' : 'URL RTSP'}
-                    </label>
+                    <label className="block text-gray-400 text-sm mb-2">Dirección IP</label>
                     <input
                       type="text"
-                      value={formData.sourceUrl}
-                      onChange={(e) => setFormData({ ...formData, sourceUrl: e.target.value })}
+                      value={formData.ip}
+                      onChange={(e) => setFormData({ ...formData, ip: e.target.value })}
                       className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white font-mono focus:outline-none focus:border-blue-500"
-                      placeholder={formData.sourceType === 'webcam' ? '0' : 'rtsp://usuario:clave@ip/stream1'}
+                      placeholder={sourceMode === 'webcam' ? 'Opcional para webcam local' : '192.168.1.100'}
                     />
                   </div>
-                </div>
+                )}
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
@@ -517,6 +662,36 @@ export function CamerasPage() {
                   className="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-lg transition-colors"
                 >
                   {editingCamera ? 'Actualizar' : 'Crear'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {confirmSourceChangeOpen && (
+          <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[60] p-4">
+            <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 w-full max-w-md">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-bold text-white">Reiniciar cámara activa</h2>
+                <button onClick={() => setConfirmSourceChangeOpen(false)} className="text-gray-400 hover:text-white">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <p className="text-gray-300 text-sm mb-6">
+                Cambiaste la fuente de una cámara que está transmitiendo. Para aplicar el cambio de forma controlada, el sistema detendrá y volverá a iniciar esta cámara.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setConfirmSourceChangeOpen(false)}
+                  className="flex-1 bg-gray-800 hover:bg-gray-700 text-white px-4 py-2.5 rounded-lg transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={() => persistCamera(true).catch(() => toast.error('No se pudo reiniciar la cámara'))}
+                  className="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-lg transition-colors"
+                >
+                  Reiniciar y guardar
                 </button>
               </div>
             </div>

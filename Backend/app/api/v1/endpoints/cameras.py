@@ -6,7 +6,8 @@ from app.core.config import Settings, get_settings
 from app.core.security import decode_access_token
 from app.models.user import UserRole
 from app.repositories.cameras import CameraRepository
-from app.schemas.camera import CameraCreate, CameraPublic, CameraUpdate
+from app.schemas.camera import CameraCreate, CameraPublic, CameraUpdate, WebcamDevice
+from app.services.webcam_discovery import detect_webcams
 from app.services.video_stream_service import video_stream_manager
 
 
@@ -30,6 +31,17 @@ async def list_cameras(
     cameras: CameraRepository = Depends(get_camera_repository),
 ) -> list[CameraPublic]:
     return [with_stream_state(camera) for camera in await cameras.list()]
+
+
+@router.get("/webcams", response_model=list[WebcamDevice])
+async def list_webcams(
+    _: dict = Depends(require_roles(UserRole.admin)),
+) -> list[WebcamDevice]:
+    try:
+        active_sources = video_stream_manager.active_webcam_sources()
+        return [WebcamDevice(**device) for device in detect_webcams(in_use_indices=active_sources)]
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
 
 
 @router.post("", response_model=CameraPublic, status_code=status.HTTP_201_CREATED)
