@@ -20,7 +20,7 @@ async def list_areas(
 @router.get("/{area_id}", response_model=AreaPublic)
 async def get_area(
     area_id: str,
-    _: dict = Depends(require_roles(UserRole.admin, UserRole.supervisor, UserRole.inspector)),
+    _: dict = Depends(require_roles(UserRole.admin)),
     service: AreaService = Depends(get_area_service),
 ) -> AreaPublic:
     area = await service.get(area_id)
@@ -32,7 +32,7 @@ async def get_area(
 @router.post("", response_model=AreaPublic, status_code=status.HTTP_201_CREATED)
 async def create_area(
     payload: AreaCreate,
-    _: dict = Depends(require_roles(UserRole.admin, UserRole.supervisor)),
+    _: dict = Depends(require_roles(UserRole.admin)),
     service: AreaService = Depends(get_area_service),
 ) -> AreaPublic:
     return AreaPublic(**await service.create(payload.model_dump()))
@@ -42,7 +42,7 @@ async def create_area(
 async def update_area(
     area_id: str,
     payload: AreaUpdate,
-    _: dict = Depends(require_roles(UserRole.admin, UserRole.supervisor)),
+    _: dict = Depends(require_roles(UserRole.admin)),
     service: AreaService = Depends(get_area_service),
 ) -> AreaPublic:
     area = await service.update(area_id, payload.model_dump())

@@ -9,10 +9,17 @@ import {
   Download, FileText, AlertTriangle
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { getReportSummary, ReportSummary } from '../services/api';
+import { exportReport, ExportFormat, getReportSummary, ReportRange, ReportSummary } from '../services/api';
 import { toast } from 'sonner';
+import { useAuth } from '../contexts/AuthContext';
+import { canExportData } from '../auth/permissions';
 
 export function ReportsPage() {
+  const { user } = useAuth();
+  const allowExport = canExportData(user?.role);
+  const [range, setRange] = useState<ReportRange>('7d');
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const [exportingFormat, setExportingFormat] = useState<ExportFormat | null>(null);
   const [summary, setSummary] = useState<ReportSummary>({
     stats: [],
     violations_by_day: [],
@@ -21,10 +28,23 @@ export function ReportsPage() {
   });
 
   useEffect(() => {
-    getReportSummary()
+    getReportSummary(range)
       .then(setSummary)
       .catch(() => toast.error('No se pudieron cargar los reportes'));
-  }, []);
+  }, [range]);
+
+  const handleExport = async (format: ExportFormat) => {
+    try {
+      setExportingFormat(format);
+      setExportMenuOpen(false);
+      await exportReport(format, range);
+      toast.success('Exportación generada correctamente');
+    } catch {
+      toast.error('No se pudo generar la exportación');
+    } finally {
+      setExportingFormat(null);
+    }
+  };
 
   return (
     <div className="flex-1 overflow-auto">
@@ -42,16 +62,42 @@ export function ReportsPage() {
           </div>
 
           <div className="flex items-center gap-4">
-            <select className="bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white text-sm">
-              <option>Últimos 7 días</option>
-              <option>Últimos 30 días</option>
-              <option>Últimos 3 meses</option>
+            <select
+              value={range}
+              onChange={(event) => setRange(event.target.value as ReportRange)}
+              className="bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white text-sm"
+            >
+              <option value="7d">Últimos 7 días</option>
+              <option value="30d">Últimos 30 días</option>
+              <option value="90d">Últimos 90 días</option>
+              <option value="all">Todo</option>
             </select>
 
-            <button className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg text-white text-sm">
-              <Download className="w-4 h-4" />
-              Exportar
-            </button>
+            {allowExport && (
+              <div className="relative">
+                <button
+                  onClick={() => setExportMenuOpen((open) => !open)}
+                  disabled={Boolean(exportingFormat)}
+                  className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-900 px-4 py-2 rounded-lg text-white text-sm"
+                >
+                  <Download className="w-4 h-4" />
+                  {exportingFormat ? 'Exportando...' : 'Exportar'}
+                </button>
+                {exportMenuOpen && (
+                  <div className="absolute right-0 mt-2 w-48 bg-gray-900 border border-gray-800 rounded-lg shadow-xl z-20 overflow-hidden">
+                    <button onClick={() => handleExport('pdf')} className="w-full text-left px-4 py-3 text-sm text-gray-200 hover:bg-gray-800">
+                      Exportar PDF
+                    </button>
+                    <button onClick={() => handleExport('excel')} className="w-full text-left px-4 py-3 text-sm text-gray-200 hover:bg-gray-800">
+                      Exportar Excel
+                    </button>
+                    <button onClick={() => handleExport('csv')} className="w-full text-left px-4 py-3 text-sm text-gray-200 hover:bg-gray-800">
+                      Exportar CSV
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -160,7 +206,11 @@ export function ReportsPage() {
         {/* REPORTES */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
 
-          <button className="bg-gray-900 border border-gray-800 rounded-xl p-8 hover:border-gray-700 text-left">
+          <button
+            disabled
+            title="Reporte detallado pendiente; use Exportar para CSV"
+            className="bg-gray-900 border border-gray-800 rounded-xl p-8 text-left opacity-60 cursor-not-allowed"
+          >
             <AlertTriangle className="w-10 h-10 text-red-500 mb-4" />
             <h3 className="text-white font-semibold mb-2">
               Incumplimientos
@@ -170,7 +220,11 @@ export function ReportsPage() {
             </p>
           </button>
 
-          <button className="bg-gray-900 border border-gray-800 rounded-xl p-8 hover:border-gray-700 text-left">
+          <button
+            disabled
+            title="Reporte detallado pendiente; use Exportar para CSV"
+            className="bg-gray-900 border border-gray-800 rounded-xl p-8 text-left opacity-60 cursor-not-allowed"
+          >
             <FileText className="w-10 h-10 text-yellow-500 mb-4" />
             <h3 className="text-white font-semibold mb-2">
               Zonas Críticas
@@ -180,7 +234,11 @@ export function ReportsPage() {
             </p>
           </button>
 
-          <button className="bg-gray-900 border border-gray-800 rounded-xl p-8 hover:border-gray-700 text-left">
+          <button
+            disabled
+            title="Reporte detallado pendiente; use Exportar para CSV"
+            className="bg-gray-900 border border-gray-800 rounded-xl p-8 text-left opacity-60 cursor-not-allowed"
+          >
             <FileText className="w-10 h-10 text-green-500 mb-4" />
             <h3 className="text-white font-semibold mb-2">
               Cumplimiento

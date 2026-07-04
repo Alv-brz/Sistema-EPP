@@ -43,6 +43,8 @@ export type CameraPayload = {
 export interface ApiDetection {
   id: string;
   camera_id: string | null;
+  camera_code: string | null;
+  camera_object_id: string | null;
   area_id: string | null;
   area_name: string | null;
   location: string | null;
@@ -54,14 +56,29 @@ export interface ApiDetection {
   confidence_threshold: number;
   processed_ms: number;
   created_by: string;
+  timestamp?: string | null;
   created_at: string;
 }
 
 export interface DetectionListResponse {
   items: ApiDetection[];
   total: number;
+  page: number;
   limit: number;
   offset: number;
+  totalPages: number;
+}
+
+export interface DetectionHistoryParams {
+  page?: number;
+  limit?: number;
+  cameraId?: string;
+  search?: string;
+  area?: string;
+  epp?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  violationsOnly?: boolean;
 }
 
 export interface DashboardStats {
@@ -82,6 +99,8 @@ export interface ReportSummary {
   compliance_by_area: Array<{ area: string; compliance: number }>;
 }
 
+export type ReportRange = '7d' | '30d' | '90d' | 'all';
+
 export interface ApiArea {
   id: string;
   name: string;
@@ -101,6 +120,15 @@ export interface YoloSettings {
   available_models: string[];
   available_classes: string[];
   recommended_threshold: number;
+}
+
+export interface GeneralSettings {
+  alarm_sound_enabled: boolean;
+  alarm_volume: number;
+  email_alerts: boolean;
+  alert_recipients: string;
+  auto_archive: boolean;
+  retention_days: number;
 }
 
 export interface LoginResponse {
@@ -231,16 +259,98 @@ export function getCameraStreamUrl(id: string): string {
   return `${API_URL}/cameras/${id}/stream?token=${encodeURIComponent(token)}`;
 }
 
+export function getDetectionWebSocketUrl(): string {
+  const token = localStorage.getItem('access_token') ?? '';
+  const wsUrl = API_URL.replace(/^http/, 'ws').replace(/\/api\/v1$/, '/api/v1/ws/detections');
+  return `${wsUrl}?token=${encodeURIComponent(token)}`;
+}
+
 export function getDashboardStats(): Promise<DashboardStats> {
   return apiRequest<DashboardStats>('/dashboard/stats');
 }
 
-export function getDetectionHistory(): Promise<DetectionListResponse> {
-  return apiRequest<DetectionListResponse>('/detections/history?limit=200');
+export function getDetectionHistory(options: DetectionHistoryParams | string = {}): Promise<DetectionListResponse> {
+  const filters: DetectionHistoryParams = typeof options === 'string' ? { cameraId: options } : options;
+  const params = new URLSearchParams({
+    page: String(filters.page ?? 1),
+    limit: String(filters.limit ?? 10),
+  });
+  if (filters.cameraId) {
+    params.set('camera_id', filters.cameraId);
+  }
+  if (filters.search) {
+    params.set('search', filters.search);
+  }
+  if (filters.area && filters.area !== 'all') {
+    params.set('area', filters.area);
+  }
+  if (filters.epp && filters.epp !== 'all') {
+    params.set('epp', filters.epp);
+  }
+  if (filters.dateFrom) {
+    params.set('date_from', filters.dateFrom);
+  }
+  if (filters.dateTo) {
+    params.set('date_to', filters.dateTo);
+  }
+  if (filters.violationsOnly) {
+    params.set('violations_only', 'true');
+  }
+  return apiRequest<DetectionListResponse>(`/detections/history?${params.toString()}`);
 }
 
-export function getReportSummary(): Promise<ReportSummary> {
-  return apiRequest<ReportSummary>('/reports/summary');
+export function getReportSummary(range: ReportRange = '7d'): Promise<ReportSummary> {
+  return apiRequest<ReportSummary>(`/reports/summary?range=${encodeURIComponent(range)}`);
+}
+
+export type ExportFormat = 'pdf' | 'excel' | 'csv';
+
+function exportExtension(format: ExportFormat): string {
+  return format === 'excel' ? 'xlsx' : format;
+}
+
+async function downloadApiFile(path: string, filename: string): Promise<void> {
+  const response = await fetch(`${API_URL}${path}`, {
+    headers: getAuthHeaders(),
+  });
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function todayStamp(): string {
+  return new Date().toISOString().slice(0, 10).replace(/-/g, '');
+}
+
+export function exportReport(format: ExportFormat, range: ReportRange): Promise<void> {
+  const extension = exportExtension(format);
+  return downloadApiFile(
+    `/reports/export/${format}?range=${encodeURIComponent(range)}`,
+    `reporte_epp_${todayStamp()}.${extension}`,
+  );
+}
+
+export function exportDetections(format: ExportFormat, filters: DetectionHistoryParams = {}): Promise<void> {
+  const params = new URLSearchParams();
+  if (filters.cameraId) params.set('camera_id', filters.cameraId);
+  if (filters.search) params.set('search', filters.search);
+  if (filters.area && filters.area !== 'all') params.set('area', filters.area);
+  if (filters.epp && filters.epp !== 'all') params.set('epp', filters.epp);
+  if (filters.dateFrom) params.set('date_from', filters.dateFrom);
+  if (filters.dateTo) params.set('date_to', filters.dateTo);
+  const extension = exportExtension(format);
+  const query = params.toString();
+  return downloadApiFile(
+    `/detections/export/${format}${query ? `?${query}` : ''}`,
+    `infracciones_epp_${todayStamp()}.${extension}`,
+  );
 }
 
 export function getYoloSettings(): Promise<YoloSettings> {
@@ -249,4 +359,12 @@ export function getYoloSettings(): Promise<YoloSettings> {
 
 export function updateYoloSettings(payload: Pick<YoloSettings, 'active_model' | 'confidence_threshold' | 'enabled_classes' | 'detection_enabled'>): Promise<YoloSettings> {
   return apiRequest<YoloSettings>('/settings/yolo', { method: 'PUT', body: JSON.stringify(payload) });
+}
+
+export function getGeneralSettings(): Promise<GeneralSettings> {
+  return apiRequest<GeneralSettings>('/settings/general');
+}
+
+export function updateGeneralSettings(payload: GeneralSettings): Promise<GeneralSettings> {
+  return apiRequest<GeneralSettings>('/settings/general', { method: 'PUT', body: JSON.stringify(payload) });
 }

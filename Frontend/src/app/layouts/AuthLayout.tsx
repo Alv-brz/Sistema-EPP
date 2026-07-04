@@ -2,7 +2,11 @@ import { Outlet, Navigate } from 'react-router';
 import { useAuth } from '../contexts/AuthContext';
 
 export function AuthLayout() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isLoading } = useAuth();
+
+  if (isLoading) {
+    return <div className="min-h-screen bg-gray-950" />;
+  }
 
   if (isAuthenticated) {
     return <Navigate to="/" replace />;

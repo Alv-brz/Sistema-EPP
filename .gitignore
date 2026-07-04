@@ -1,10 +1,48 @@
+# Node
 node_modules/
-__pycache__/
 dist/
 build/
-.env
+
+# Python
+__pycache__/
+*.pyc
 .venv/
 venv/
+
+# Variables de entorno
+.env
+.env.*
+!.env.example
+
+# YOLO
 runs/
-*.pyc
+
+# VS Code
+.vscode/
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+# Logs
+*.log
+
+# Archivos temporales
+*.tmp
+
+# Documentación privada
+Docs/
+AI_CONTEXT.md
+PROJECT_STATUS.md
+README.txt
+
+# Carpetas auxiliares
 Microsoft/
+
+# Archivos generados por el sistema
+Backend/storage/uploads/*
+Backend/storage/annotated/*
+
+# Mantener las carpetas en el repositorio
+!Backend/storage/uploads/.gitkeep
+!Backend/storage/annotated/.gitkeep

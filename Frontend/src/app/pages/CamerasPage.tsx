@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { Camera, Plus, Edit, Trash2, Power, Settings, Search, X, MapPin, Wifi } from 'lucide-react';
 import { toast } from 'sonner';
 import { ApiArea, ApiCamera, createCamera, deleteCamera, getAreas, getCameraStreamUrl, listCameras, startCamera, stopCamera, updateCamera } from '../services/api';
+import { useAuth } from '../contexts/AuthContext';
+import { canControlCameras, canManageCameras } from '../auth/permissions';
 
 interface CameraData {
   id: string;
@@ -35,7 +37,25 @@ function fromApiCamera(camera: ApiCamera): CameraData {
   };
 }
 
+function getErrorMessage(error: unknown, fallback: string): string {
+  if (!(error instanceof Error) || !error.message) {
+    return fallback;
+  }
+  try {
+    const parsed = JSON.parse(error.message);
+    if (typeof parsed.detail === 'string') {
+      return parsed.detail;
+    }
+  } catch {
+    return error.message;
+  }
+  return fallback;
+}
+
 export function CamerasPage() {
+  const { user } = useAuth();
+  const allowManageCameras = canManageCameras(user?.role);
+  const allowControlCameras = canControlCameras(user?.role);
   const [cameras, setCameras] = useState<CameraData[]>([]);
   const [areas, setAreas] = useState<ApiArea[]>([]);
   const [cameraCodes, setCameraCodes] = useState<Record<string, string>>({});
@@ -43,6 +63,7 @@ export function CamerasPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [editingCamera, setEditingCamera] = useState<CameraData | null>(null);
+  const [cameraToDelete, setCameraToDelete] = useState<CameraData | null>(null);
   const [formData, setFormData] = useState({
     name: '',
     location: '',
@@ -58,7 +79,6 @@ export function CamerasPage() {
 
   const loadAreas = async (): Promise<ApiArea[]> => {
     const response = await getAreas();
-    console.log('GET /areas response', response);
     setAreas(response);
     return response;
   };
@@ -66,12 +86,13 @@ export function CamerasPage() {
   const loadCameras = async () => {
     try {
       setLoading(true);
-      const [apiCameras, apiAreas] = await Promise.all([listCameras(), loadAreas()]);
-      console.log('Areas loaded in CamerasPage', apiAreas);
+      const apiCameras = await listCameras();
+      if (allowManageCameras) {
+        await loadAreas();
+      }
       setCameras(apiCameras.map(fromApiCamera));
       setCameraCodes(Object.fromEntries(apiCameras.map(camera => [camera.id, camera.code])));
-    } catch (error) {
-      console.error('Error loading cameras or areas from API', error);
+    } catch {
       toast.error('No se pudieron cargar las cámaras');
     } finally {
       setLoading(false);
@@ -80,18 +101,20 @@ export function CamerasPage() {
 
   useEffect(() => {
     loadCameras();
-  }, []);
+  }, [allowManageCameras]);
 
   const handleCreate = () => {
+    if (!allowManageCameras) return;
     setEditingCamera(null);
-    loadAreas().then((apiAreas) => console.log('Areas loaded in CamerasPage', apiAreas)).catch((error) => console.error('Error refreshing areas for camera form', error));
+    loadAreas().catch(() => toast.error('No se pudieron cargar las áreas'));
     setFormData({ name: '', location: '', areaId: '', areaName: '', ip: '', status: 'online', sourceType: 'webcam', sourceUrl: '0', resolution: '1920x1080', fps: 30 });
     setShowModal(true);
   };
 
   const handleEdit = (camera: CameraData) => {
+    if (!allowManageCameras) return;
     setEditingCamera(camera);
-    loadAreas().then((apiAreas) => console.log('Areas loaded in CamerasPage', apiAreas)).catch((error) => console.error('Error refreshing areas for camera form', error));
+    loadAreas().catch(() => toast.error('No se pudieron cargar las áreas'));
     setFormData({
       name: camera.name,
       location: camera.location,
@@ -108,6 +131,7 @@ export function CamerasPage() {
   };
 
   const handleSave = async () => {
+    if (!allowManageCameras) return;
     if (!formData.name || !formData.areaId || !formData.ip) {
       toast.error('Por favor completa todos los campos');
       return;
@@ -156,25 +180,26 @@ export function CamerasPage() {
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (confirm('¿Estás seguro de eliminar esta cámara?')) {
-      try {
-        await deleteCamera(id);
-        setCameras(cameras.filter(c => c.id !== id));
-        toast.success('Cámara eliminada correctamente');
-      } catch {
-        toast.error('No se pudo eliminar la cámara');
-      }
+  const handleDelete = async () => {
+    if (!allowManageCameras || !cameraToDelete) return;
+    try {
+      await deleteCamera(cameraToDelete.id);
+      setCameras(cameras.filter(c => c.id !== cameraToDelete.id));
+      setCameraToDelete(null);
+      toast.success('Cámara eliminada correctamente');
+    } catch {
+      toast.error('No se pudo eliminar la cámara');
     }
   };
 
   const toggleStatus = async (camera: CameraData) => {
+    if (!allowControlCameras) return;
     try {
       const updated = camera.isStreaming ? await stopCamera(camera.id) : await startCamera(camera.id);
       setCameras(cameras.map(c => c.id === camera.id ? fromApiCamera(updated) : c));
       toast.success(camera.isStreaming ? 'Cámara detenida' : 'Cámara iniciada');
-    } catch {
-      toast.error('No se pudo cambiar el estado de la cámara');
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'No se pudo cambiar el estado de la cámara'));
     }
   };
 
@@ -193,13 +218,15 @@ export function CamerasPage() {
             <h1 className="text-2xl font-bold text-white mb-2">Gestión de Cámaras</h1>
             <p className="text-gray-400">Configurar y administrar dispositivos de vigilancia</p>
           </div>
-          <button
-            onClick={handleCreate}
-            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors"
-          >
-            <Plus className="w-5 h-5" />
-            Agregar Cámara
-          </button>
+          {allowManageCameras && (
+            <button
+              onClick={handleCreate}
+              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors"
+            >
+              <Plus className="w-5 h-5" />
+              Agregar Cámara
+            </button>
+          )}
         </div>
       </div>
 
@@ -214,14 +241,14 @@ export function CamerasPage() {
 
           <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
             <Wifi className="w-10 h-10 text-green-500 mb-3 opacity-80" />
-            <p className="text-3xl font-bold text-green-500">{cameras.filter(c => c.status === 'online').length}</p>
-            <p className="text-gray-400 text-sm">En Línea</p>
+            <p className="text-3xl font-bold text-green-500">{cameras.filter(c => c.isStreaming).length}</p>
+            <p className="text-gray-400 text-sm">Transmitiendo</p>
           </div>
 
           <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
             <Power className="w-10 h-10 text-red-500 mb-3 opacity-80" />
-            <p className="text-3xl font-bold text-red-500">{cameras.filter(c => c.status === 'offline').length}</p>
-            <p className="text-gray-400 text-sm">Fuera de Línea</p>
+            <p className="text-3xl font-bold text-red-500">{cameras.filter(c => !c.isStreaming).length}</p>
+            <p className="text-gray-400 text-sm">Detenidas</p>
           </div>
         </div>
 
@@ -245,7 +272,7 @@ export function CamerasPage() {
             <div
               key={camera.id}
               className={`bg-gray-900 border-2 rounded-xl p-6 transition-all ${
-                camera.status === 'online'
+                camera.isStreaming
                   ? 'border-gray-800 hover:border-gray-700'
                   : 'border-red-500/30 hover:border-red-500/50'
               }`}
@@ -274,11 +301,11 @@ export function CamerasPage() {
                 <div className="flex items-center justify-between mb-2">
                   <h3 className="text-white font-semibold">{cameraCodes[camera.id] ?? camera.id}</h3>
                   <span className={`px-2 py-1 rounded-full text-xs ${
-                    camera.status === 'online'
+                    camera.isStreaming
                       ? 'bg-green-500/20 text-green-400'
                       : 'bg-red-500/20 text-red-400'
                   }`}>
-                  {camera.isStreaming ? 'STREAMING' : camera.status.toUpperCase()}
+                  {camera.isStreaming ? 'STREAMING' : 'DETENIDA'}
                   </span>
                 </div>
                 <p className="text-gray-300 text-sm mb-2">{camera.name}</p>
@@ -310,29 +337,35 @@ export function CamerasPage() {
 
               {/* Actions */}
               <div className="flex gap-2">
-                <button
-                  onClick={() => toggleStatus(camera)}
-                  className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
-                    camera.isStreaming
-                      ? 'bg-red-500/20 hover:bg-red-500/30 text-red-400'
-                      : 'bg-green-500/20 hover:bg-green-500/30 text-green-400'
-                  }`}
-                >
-                  <Power className="w-4 h-4" />
-                  {camera.isStreaming ? 'Detener' : 'Iniciar'}
-                </button>
-                <button
-                  onClick={() => handleEdit(camera)}
-                  className="p-2 bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 rounded-lg transition-colors"
-                >
-                  <Edit className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => handleDelete(camera.id)}
-                  className="p-2 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg transition-colors"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
+                {allowControlCameras && (
+                  <button
+                    onClick={() => toggleStatus(camera)}
+                    className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
+                      camera.isStreaming
+                        ? 'bg-red-500/20 hover:bg-red-500/30 text-red-400'
+                        : 'bg-green-500/20 hover:bg-green-500/30 text-green-400'
+                    }`}
+                  >
+                    <Power className="w-4 h-4" />
+                    {camera.isStreaming ? 'Detener' : 'Iniciar'}
+                  </button>
+                )}
+                {allowManageCameras && (
+                  <>
+                    <button
+                      onClick={() => handleEdit(camera)}
+                      className="p-2 bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 rounded-lg transition-colors"
+                    >
+                      <Edit className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => setCameraToDelete(camera)}
+                      className="p-2 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg transition-colors"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           ))}
@@ -376,7 +409,7 @@ export function CamerasPage() {
                     <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
                     <select
                       value={formData.areaId}
-                      onFocus={() => loadAreas().then((apiAreas) => console.log('Areas loaded in CamerasPage', apiAreas)).catch((error) => console.error('Error refreshing areas for camera selector', error))}
+                      onFocus={() => loadAreas().catch(() => toast.error('No se pudieron cargar las áreas'))}
                       onChange={(e) => {
                         const area = areas.find(item => item.id === e.target.value);
                         setFormData({ ...formData, areaId: e.target.value, areaName: area?.name ?? '', location: area?.name ?? '' });
@@ -484,6 +517,36 @@ export function CamerasPage() {
                   className="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-lg transition-colors"
                 >
                   {editingCamera ? 'Actualizar' : 'Crear'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {cameraToDelete && (
+          <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+            <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 w-full max-w-md">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-bold text-white">Eliminar cámara</h2>
+                <button onClick={() => setCameraToDelete(null)} className="text-gray-400 hover:text-white">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <p className="text-gray-300 text-sm mb-6">
+                ¿Deseas eliminar la cámara <span className="font-semibold text-white">{cameraToDelete.name}</span>? Esta acción no se puede deshacer.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setCameraToDelete(null)}
+                  className="flex-1 bg-gray-800 hover:bg-gray-700 text-white px-4 py-2.5 rounded-lg transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleDelete}
+                  className="flex-1 bg-red-600 hover:bg-red-700 text-white px-4 py-2.5 rounded-lg transition-colors"
+                >
+                  Eliminar
                 </button>
               </div>
             </div>

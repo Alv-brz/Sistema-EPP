@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.v1.router import api_router
 from app.core.config import get_settings
 from app.db.mongodb import close_mongo_connection, connect_to_mongo, get_database
+from app.realtime.manager import manager
 from app.repositories.cameras import CameraRepository
 from app.repositories.users import UserRepository
 from app.repositories.yolo_settings import YoloSettingsRepository
@@ -25,8 +26,12 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         password=settings.default_admin_password,
     )
     await CameraRepository(get_database()).ensure_defaults()
-    await YoloSettingsRepository(get_database()).get()
+    settings_repository = YoloSettingsRepository(get_database())
+    await settings_repository.get()
+    await settings_repository.get_general()
+    await manager.start()
     yield
+    await manager.stop()
     video_stream_manager.stop_all()
     await close_mongo_connection()
 

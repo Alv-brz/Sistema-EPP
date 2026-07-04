@@ -1,7 +1,7 @@
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field, field_validator
+from pydantic import Field, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -40,6 +40,24 @@ class Settings(BaseSettings):
     def parse_cors_origins(cls, value: str | list[str]) -> list[str]:
         if isinstance(value, str):
             return [origin.strip() for origin in value.split(",") if origin.strip()]
+        return value
+
+    @field_validator("jwt_secret_key")
+    @classmethod
+    def validate_jwt_secret_key(cls, value: str, info: ValidationInfo) -> str:
+        environment = str(info.data.get("environment", "development")).lower()
+        local_environments = {"development", "dev", "local", "test", "testing"}
+        if environment not in local_environments and value.startswith("change-this-secret"):
+            raise ValueError("JWT_SECRET_KEY must be changed outside local development")
+        return value
+
+    @field_validator("default_admin_password")
+    @classmethod
+    def validate_default_admin_password(cls, value: str, info: ValidationInfo) -> str:
+        environment = str(info.data.get("environment", "development")).lower()
+        local_environments = {"development", "dev", "local", "test", "testing"}
+        if environment not in local_environments and value in {"password123", "admin", "admin123"}:
+            raise ValueError("DEFAULT_ADMIN_PASSWORD must be changed outside local development")
         return value
 
     @property

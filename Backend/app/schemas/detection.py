@@ -15,6 +15,8 @@ class DetectionItem(BaseModel):
 class DetectionPublic(BaseModel):
     id: str
     camera_id: str | None = None
+    camera_code: str | None = None
+    camera_object_id: str | None = None
     area_id: str | None = None
     area_name: str | None = None
     location: str | None = None
@@ -34,5 +36,7 @@ class DetectionPublic(BaseModel):
 class DetectionListResponse(BaseModel):
     items: list[DetectionPublic]
     total: int
+    page: int = 1
     limit: int
     offset: int
+    totalPages: int = 1

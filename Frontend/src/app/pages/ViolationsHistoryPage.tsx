@@ -1,21 +1,56 @@
 import { useEffect, useState } from 'react';
-import { Download, Search, MapPin, Camera } from 'lucide-react';
-import { ApiDetection, getDetectionHistory } from '../services/api';
+import { ChevronLeft, ChevronRight, Download, Search, MapPin, Camera } from 'lucide-react';
+import { ApiArea, ApiDetection, exportDetections, ExportFormat, getAreas, getDetectionHistory } from '../services/api';
 import { toast } from 'sonner';
+import { useAuth } from '../contexts/AuthContext';
+import { canExportData } from '../auth/permissions';
 
 export function ViolationsHistoryPage() {
+  const { user } = useAuth();
+  const allowExport = canExportData(user?.role);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterArea, setFilterArea] = useState('all');
   const [filterEPP, setFilterEPP] = useState('all');
   const [violations, setViolations] = useState<ApiDetection[]>([]);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const [loading, setLoading] = useState(true);
+  const [areas, setAreas] = useState<ApiArea[]>([]);
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const [exportingFormat, setExportingFormat] = useState<ExportFormat | null>(null);
+
+  useEffect(() => {
+    getAreas()
+      .then((items) => {
+        setAreas(items);
+        if (filterArea !== 'all' && !items.some((area) => area.name === filterArea)) {
+          setFilterArea('all');
+        }
+      })
+      .catch(() => {
+        setAreas([]);
+        setFilterArea('all');
+        toast.error('No se pudieron cargar las áreas');
+      });
+  }, []);
 
   useEffect(() => {
     const loadViolations = async () => {
       try {
         setLoading(true);
-        const response = await getDetectionHistory();
-        setViolations(response.items.filter(item => item.missing_epps.length > 0));
+        const response = await getDetectionHistory({
+          page,
+          limit: pageSize,
+          search: searchTerm.trim() || undefined,
+          area: filterArea,
+          epp: filterEPP,
+          violationsOnly: true,
+        });
+        setViolations(response.items);
+        setTotal(response.total);
+        setTotalPages(response.totalPages);
       } catch {
         toast.error('No se pudo cargar el historial');
       } finally {
@@ -24,25 +59,17 @@ export function ViolationsHistoryPage() {
     };
 
     loadViolations();
-  }, []);
+  }, [page, pageSize, searchTerm, filterArea, filterEPP]);
 
-  const filteredViolations = violations.filter((violation) => {
-    const haystack = [
-      violation.id,
-      violation.camera_id ?? '',
-      violation.area_name ?? '',
-      violation.location ?? '',
-      violation.missing_epps.join(' '),
-    ].join(' ').toLowerCase();
-    const matchesSearch = haystack.includes(searchTerm.toLowerCase());
-    const matchesArea = filterArea === 'all' || (violation.area_name ?? violation.location ?? '').toLowerCase().includes(filterArea);
-    const matchesEPP = filterEPP === 'all' || violation.missing_epps.some(epp => epp.toLowerCase().includes(filterEPP));
-    return matchesSearch && matchesArea && matchesEPP;
-  });
+  useEffect(() => {
+    setPage(1);
+  }, [searchTerm, filterArea, filterEPP, pageSize]);
 
-  const formatDate = (timestamp: string) => {
+  const formatDate = (timestamp?: string) => {
+    if (!timestamp) return 'Sin fecha';
     const date = new Date(timestamp);
-    return date.toLocaleDateString('es-ES', {
+    if (Number.isNaN(date.getTime())) return 'Fecha inválida';
+    return date.toLocaleString('es-PE', {
       day: '2-digit',
       month: 'short',
       year: 'numeric',
@@ -68,6 +95,44 @@ export function ViolationsHistoryPage() {
       default: return severity;
     }
   };
+
+  const handleExport = async (format: ExportFormat) => {
+    try {
+      setExportingFormat(format);
+      setExportMenuOpen(false);
+      await exportDetections(format, {
+        search: searchTerm.trim() || undefined,
+        area: filterArea,
+        epp: filterEPP,
+        violationsOnly: true,
+      });
+      toast.success('Exportación generada correctamente');
+    } catch {
+      toast.error('No se pudo generar la exportación');
+    } finally {
+      setExportingFormat(null);
+    }
+  };
+
+  const visiblePages = () => {
+    const pages = new Set<number>([1, totalPages, page - 1, page, page + 1]);
+    if (page <= 3) {
+      pages.add(2);
+      pages.add(3);
+      pages.add(4);
+      pages.add(5);
+    }
+    if (page >= totalPages - 2) {
+      pages.add(totalPages - 4);
+      pages.add(totalPages - 3);
+      pages.add(totalPages - 2);
+      pages.add(totalPages - 1);
+    }
+    return Array.from(pages).filter(value => value >= 1 && value <= totalPages).sort((a, b) => a - b);
+  };
+
+  const firstShown = total === 0 ? 0 : (page - 1) * pageSize + 1;
+  const lastShown = Math.min(page * pageSize, total);
 
   return (
     <div className="flex-1 overflow-auto">
@@ -103,10 +168,11 @@ export function ViolationsHistoryPage() {
                 className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-blue-500 transition-colors appearance-none cursor-pointer"
               >
                 <option value="all">Todas las áreas</option>
-                <option value="produccion">Producción</option>
-                <option value="almacen">Almacén</option>
-                <option value="construccion">Construcción</option>
-                <option value="taller">Taller</option>
+                {areas.map((area) => (
+                  <option key={area.id} value={area.name}>
+                    {area.name}
+                  </option>
+                ))}
               </select>
             </div>
 
@@ -128,13 +194,46 @@ export function ViolationsHistoryPage() {
           </div>
 
           <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-800">
-            <p className="text-gray-400 text-sm">
-              {filteredViolations.length} infracciones encontradas
-            </p>
-            <button className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm transition-colors">
-              <Download className="w-4 h-4" />
-              Exportar CSV
-            </button>
+            <div className="flex items-center gap-4">
+              <p className="text-gray-400 text-sm">
+                {total} infracciones encontradas
+              </p>
+              <label className="flex items-center gap-2 text-sm text-gray-400">
+                Registros:
+                <select
+                  value={pageSize}
+                  onChange={(event) => setPageSize(Number(event.target.value))}
+                  className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-white"
+                >
+                  {[5, 10, 20, 50].map(size => <option key={size} value={size}>{size}</option>)}
+                </select>
+              </label>
+            </div>
+            {allowExport && (
+              <div className="relative">
+                <button
+                  onClick={() => setExportMenuOpen((open) => !open)}
+                  disabled={Boolean(exportingFormat)}
+                  className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-900 text-white px-4 py-2 rounded-lg text-sm transition-colors"
+                >
+                  <Download className="w-4 h-4" />
+                  {exportingFormat ? 'Exportando...' : 'Exportar'}
+                </button>
+                {exportMenuOpen && (
+                  <div className="absolute right-0 mt-2 w-48 bg-gray-900 border border-gray-800 rounded-lg shadow-xl z-20 overflow-hidden">
+                    <button onClick={() => handleExport('pdf')} className="w-full text-left px-4 py-3 text-sm text-gray-200 hover:bg-gray-800">
+                      Exportar PDF
+                    </button>
+                    <button onClick={() => handleExport('excel')} className="w-full text-left px-4 py-3 text-sm text-gray-200 hover:bg-gray-800">
+                      Exportar Excel
+                    </button>
+                    <button onClick={() => handleExport('csv')} className="w-full text-left px-4 py-3 text-sm text-gray-200 hover:bg-gray-800">
+                      Exportar CSV
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
@@ -153,13 +252,13 @@ export function ViolationsHistoryPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-800">
-              {!loading && filteredViolations.map((violation) => (
+              {!loading && violations.map((violation) => (
                 <tr key={violation.id} className="hover:bg-gray-800/50 transition-colors">
                   <td className="px-6 py-4 text-sm text-white font-mono">{violation.id.slice(-8)}</td>
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-2">
                       <Camera className="w-4 h-4 text-blue-400" />
-                      <span className="text-white text-sm">{violation.camera_id ?? 'N/A'}</span>
+                      <span className="text-white text-sm">{violation.camera_code ?? violation.camera_id ?? 'N/A'}</span>
                     </div>
                   </td>
                   <td className="px-6 py-4">
@@ -168,7 +267,7 @@ export function ViolationsHistoryPage() {
                       <span className="text-gray-300 text-sm">{violation.area_name ?? violation.location ?? 'Sin ubicación'}</span>
                     </div>
                   </td>
-                  <td className="px-6 py-4 text-sm text-gray-300">{formatDate(violation.created_at)}</td>
+                  <td className="px-6 py-4 text-sm text-gray-300">{formatDate(violation.created_at ?? violation.timestamp)}</td>
                   <td className="px-6 py-4">
                     <div className="flex flex-wrap gap-1">
                       {violation.missing_epps.map((epp, idx) => (
@@ -187,13 +286,24 @@ export function ViolationsHistoryPage() {
                     </span>
                   </td>
                   <td className="px-6 py-4">
-                    <button className="text-blue-400 hover:text-blue-300 text-sm">
-                      Ver detalles
+                    <button
+                      disabled
+                      title="Vista de detalle pendiente"
+                      className="text-gray-500 text-sm cursor-not-allowed"
+                    >
+                      Detalle pendiente
                     </button>
                   </td>
                 </tr>
               ))}
-              {!loading && filteredViolations.length === 0 && (
+              {loading && (
+                <tr>
+                  <td colSpan={7} className="px-6 py-10 text-center text-gray-500">
+                    Cargando infracciones...
+                  </td>
+                </tr>
+              )}
+              {!loading && violations.length === 0 && (
                 <tr>
                   <td colSpan={7} className="px-6 py-10 text-center text-gray-500">
                     No hay infracciones registradas
@@ -202,6 +312,48 @@ export function ViolationsHistoryPage() {
               )}
             </tbody>
           </table>
+        </div>
+
+        <div className="flex items-center justify-between mt-4">
+          <p className="text-gray-400 text-sm">
+            Página {page} de {totalPages}. Mostrando {firstShown}-{lastShown} de {total} infracciones.
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPage((current) => Math.max(current - 1, 1))}
+              disabled={page <= 1 || loading}
+              className="flex items-center gap-2 bg-gray-800 hover:bg-gray-700 disabled:opacity-50 disabled:hover:bg-gray-800 text-white px-3 py-2 rounded-lg text-sm"
+            >
+              <ChevronLeft className="w-4 h-4" />
+              Anterior
+            </button>
+            {visiblePages().map((pageNumber, index, pages) => (
+              <div key={pageNumber} className="flex items-center gap-2">
+                {index > 0 && pageNumber - pages[index - 1] > 1 && (
+                  <span className="text-gray-500 px-1">...</span>
+                )}
+                <button
+                  onClick={() => setPage(pageNumber)}
+                  disabled={loading}
+                  className={`min-w-9 px-3 py-2 rounded-lg text-sm ${
+                    pageNumber === page
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-gray-800 hover:bg-gray-700 text-gray-300'
+                  } disabled:opacity-50`}
+                >
+                  {pageNumber}
+                </button>
+              </div>
+            ))}
+            <button
+              onClick={() => setPage((current) => Math.min(current + 1, totalPages))}
+              disabled={page >= totalPages || loading}
+              className="flex items-center gap-2 bg-gray-800 hover:bg-gray-700 disabled:opacity-50 disabled:hover:bg-gray-800 text-white px-3 py-2 rounded-lg text-sm"
+            >
+              Siguiente
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       </div>
     </div>

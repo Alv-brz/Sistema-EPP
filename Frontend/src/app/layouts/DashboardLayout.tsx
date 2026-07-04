@@ -1,5 +1,7 @@
-import { Outlet, Navigate, NavLink } from 'react-router';
+import { Outlet, Navigate, NavLink, useLocation } from 'react-router';
 import { useAuth } from '../contexts/AuthContext';
+import { GlobalNotificationBell } from '../components/GlobalNotificationBell';
+import { canAccessRoute, hasRole } from '../auth/permissions';
 import {
   LayoutDashboard,
   MonitorPlay,
@@ -18,24 +20,33 @@ import {
 import { useState } from 'react';
 
 export function DashboardLayout() {
-  const { isAuthenticated, user, logout } = useAuth();
+  const { isAuthenticated, isLoading, user, logout } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const location = useLocation();
+
+  if (isLoading) {
+    return <div className="min-h-screen bg-gray-950" />;
+  }
 
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;
   }
 
   const navItems = [
-    { path: '/', icon: LayoutDashboard, label: 'Dashboard', exact: true },
-    { path: '/monitoring', icon: MonitorPlay, label: 'Monitoreo en Vivo' },
-    { path: '/violations', icon: AlertTriangle, label: 'Infracciones' },
-    { path: '/reports', icon: FileBarChart, label: 'Reportes' },
-    { path: '/cameras', icon: Camera, label: 'Cámaras' },
-    { path: '/areas', icon: MapPin, label: 'Áreas' },
-    { path: '/users', icon: Users, label: 'Usuarios' },
-    { path: '/settings', icon: Settings, label: 'Configuración' },
-  ];
+    { path: '/', icon: LayoutDashboard, label: 'Dashboard', exact: true, roles: ['admin', 'supervisor', 'inspector'] as const },
+    { path: '/monitoring', icon: MonitorPlay, label: 'Monitoreo en Vivo', roles: ['admin', 'supervisor', 'inspector'] as const },
+    { path: '/violations', icon: AlertTriangle, label: 'Infracciones', roles: ['admin', 'supervisor', 'inspector'] as const },
+    { path: '/reports', icon: FileBarChart, label: 'Reportes', roles: ['admin', 'supervisor'] as const },
+    { path: '/cameras', icon: Camera, label: 'Cámaras', roles: ['admin', 'supervisor'] as const },
+    { path: '/areas', icon: MapPin, label: 'Áreas', roles: ['admin'] as const },
+    { path: '/users', icon: Users, label: 'Usuarios', roles: ['admin'] as const },
+    { path: '/settings', icon: Settings, label: 'Configuración', roles: ['admin'] as const },
+  ].filter((item) => hasRole(user?.role, [...item.roles]));
+
+  if (!canAccessRoute(user?.role, location.pathname)) {
+    return <Navigate to="/" replace />;
+  }
 
   return (
     <div className="min-h-screen bg-gray-950 flex">
@@ -131,6 +142,9 @@ export function DashboardLayout() {
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col min-w-0">
+        <div className="bg-gray-900 border-b border-gray-800 px-8 py-3 flex justify-end">
+          <GlobalNotificationBell />
+        </div>
         <Outlet />
       </div>
     </div>

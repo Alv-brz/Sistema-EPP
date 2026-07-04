@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Settings, Bell, Camera, Shield, Database, Mail, Save } from 'lucide-react';
 import { toast } from 'sonner';
-import { getYoloSettings, updateYoloSettings, YoloSettings } from '../services/api';
+import { getGeneralSettings, getYoloSettings, updateGeneralSettings, updateYoloSettings, YoloSettings } from '../services/api';
 
 const classLabels: Record<string, string> = {
   helmet: 'Casco',
@@ -38,9 +38,12 @@ export function SettingsPage() {
   const [availableModels, setAvailableModels] = useState<string[]>(['best.pt', 'belst.pt', 'bes33t.pt']);
   const [recommendedThreshold, setRecommendedThreshold] = useState(50);
   const [detectionEnabled, setDetectionEnabled] = useState(true);
+  const [alarmSoundEnabled, setAlarmSoundEnabled] = useState(true);
   const [alarmVolume, setAlarmVolume] = useState(80);
   const [emailAlerts, setEmailAlerts] = useState(true);
+  const [alertRecipients, setAlertRecipients] = useState('');
   const [autoArchive, setAutoArchive] = useState(true);
+  const [retentionDays, setRetentionDays] = useState(365);
   const [saving, setSaving] = useState(false);
 
   const visibleClassOptions = useMemo(() => modelClassOptions[activeModel] ?? modelClassOptions['best.pt'], [activeModel]);
@@ -59,6 +62,17 @@ export function SettingsPage() {
     getYoloSettings()
       .then(applySettings)
       .catch(() => toast.error('No se pudo cargar la configuración YOLO'));
+    getGeneralSettings()
+      .then((settings) => {
+        setAlarmSoundEnabled(settings.alarm_sound_enabled);
+        setAlarmVolume(settings.alarm_volume);
+        setEmailAlerts(settings.email_alerts);
+        setAlertRecipients(settings.alert_recipients);
+        setAutoArchive(settings.auto_archive);
+        setRetentionDays(settings.retention_days);
+        localStorage.setItem('epp_alarm_settings', JSON.stringify({ enabled: settings.alarm_sound_enabled, volume: settings.alarm_volume }));
+      })
+      .catch(() => toast.error('No se pudo cargar la configuración general'));
   }, []);
 
   const handleClassToggle = (className: string, checked: boolean) => {
@@ -88,8 +102,17 @@ export function SettingsPage() {
         enabled_classes: enabledClasses,
         detection_enabled: detectionEnabled,
       });
+      const general = await updateGeneralSettings({
+        alarm_sound_enabled: alarmSoundEnabled,
+        alarm_volume: alarmVolume,
+        email_alerts: emailAlerts,
+        alert_recipients: alertRecipients,
+        auto_archive: autoArchive,
+        retention_days: retentionDays,
+      });
+      localStorage.setItem('epp_alarm_settings', JSON.stringify({ enabled: general.alarm_sound_enabled, volume: general.alarm_volume }));
       applySettings(updated);
-      toast.success('Configuración YOLO guardada');
+      toast.success('Configuración guardada');
     } catch {
       toast.error('No se pudo guardar la configuración YOLO');
     } finally {
@@ -220,6 +243,18 @@ export function SettingsPage() {
 
           <div className="space-y-6">
             <div>
+              <label className="flex items-center gap-3 cursor-pointer mb-6">
+                <input
+                  type="checkbox"
+                  checked={alarmSoundEnabled}
+                  onChange={(e) => setAlarmSoundEnabled(e.target.checked)}
+                  className="w-5 h-5 rounded bg-gray-700 border-gray-600 text-red-600 focus:ring-red-500 focus:ring-offset-gray-900"
+                />
+                <div>
+                  <p className="text-white font-medium">Sonido de Alarma</p>
+                  <p className="text-gray-400 text-sm">Reproducir dos beeps breves al recibir una infracción</p>
+                </div>
+              </label>
               <label className="block text-white mb-3">
                 Volumen de Alarma: <span className="text-red-400 font-semibold">{alarmVolume}%</span>
               </label>
@@ -252,6 +287,8 @@ export function SettingsPage() {
               <label className="block text-white mb-2">Destinatarios de Alertas</label>
               <input
                 type="text"
+                value={alertRecipients}
+                onChange={(e) => setAlertRecipients(e.target.value)}
                 placeholder="admin@empresa.com, supervisor@empresa.com"
                 className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-red-500 transition-colors"
               />
@@ -291,17 +328,26 @@ export function SettingsPage() {
               <label className="block text-white mb-2">Período de Retención (días)</label>
               <input
                 type="number"
-                defaultValue="365"
+                value={retentionDays}
+                onChange={(e) => setRetentionDays(Number(e.target.value))}
                 className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-green-500 transition-colors"
               />
             </div>
 
             <div className="flex gap-3">
-              <button className="flex-1 bg-gray-800 hover:bg-gray-700 text-white px-4 py-3 rounded-lg transition-colors">
-                Exportar Base de Datos
+              <button
+                disabled
+                title="Exportación completa de base de datos pendiente de endpoint backend"
+                className="flex-1 bg-gray-800 text-gray-500 px-4 py-3 rounded-lg cursor-not-allowed"
+              >
+                Exportar Base de Datos (pendiente)
               </button>
-              <button className="flex-1 bg-gray-800 hover:bg-gray-700 text-white px-4 py-3 rounded-lg transition-colors">
-                Limpiar Datos Antiguos
+              <button
+                disabled
+                title="Limpieza de datos pendiente de endpoint backend"
+                className="flex-1 bg-gray-800 text-gray-500 px-4 py-3 rounded-lg cursor-not-allowed"
+              >
+                Limpiar Datos Antiguos (pendiente)
               </button>
             </div>
           </div>

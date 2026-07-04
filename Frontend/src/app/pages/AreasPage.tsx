@@ -25,6 +25,7 @@ export function AreasPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [editingArea, setEditingArea] = useState<AreaData | null>(null);
+  const [areaToDelete, setAreaToDelete] = useState<AreaData | null>(null);
   const [formData, setFormData] = useState({
     name: '',
     description: '',
@@ -51,10 +52,8 @@ export function AreasPage() {
     try {
       setLoading(true);
       const response = await getAreas();
-      console.log('GET /areas response', response);
       setAreas(response.map(fromApiArea));
-    } catch (error) {
-      console.error('Error loading areas from API', error);
+    } catch {
       toast.error('No se pudieron cargar las áreas');
     } finally {
       setLoading(false);
@@ -103,27 +102,24 @@ export function AreasPage() {
           description: formData.description,
           required_epps: formData.requiredEPPs as ApiArea['required_epps'],
         });
-        console.log('POST /areas response', created);
         setAreas([...areas, fromApiArea(created)]);
         toast.success('Área creada correctamente');
       }
       setShowModal(false);
-    } catch (error) {
-      console.error('Error saving area through API', error);
+    } catch {
       toast.error('No se pudo guardar el área');
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (confirm('¿Estás seguro de eliminar esta área?')) {
-      try {
-        await deleteArea(id);
-        setAreas(areas.filter(a => a.id !== id));
-        toast.success('Área eliminada correctamente');
-      } catch (error) {
-        console.error('Error deleting area through API', error);
-        toast.error('No se pudo eliminar el área');
-      }
+  const handleDelete = async () => {
+    if (!areaToDelete) return;
+    try {
+      await deleteArea(areaToDelete.id);
+      setAreas(areas.filter(a => a.id !== areaToDelete.id));
+      setAreaToDelete(null);
+      toast.success('Área eliminada correctamente');
+    } catch {
+      toast.error('No se pudo eliminar el área');
     }
   };
 
@@ -232,7 +228,7 @@ export function AreasPage() {
                     <Edit className="w-4 h-4 text-blue-400" />
                   </button>
                   <button
-                    onClick={() => handleDelete(area.id)}
+                    onClick={() => setAreaToDelete(area)}
                     className="p-2 bg-red-500/20 hover:bg-red-500/30 rounded-lg transition-colors"
                   >
                     <Trash2 className="w-4 h-4 text-red-400" />
@@ -337,6 +333,36 @@ export function AreasPage() {
                   className="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-lg transition-colors"
                 >
                   {editingArea ? 'Actualizar' : 'Crear'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {areaToDelete && (
+          <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+            <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 w-full max-w-md">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-bold text-white">Eliminar área</h2>
+                <button onClick={() => setAreaToDelete(null)} className="text-gray-400 hover:text-white">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <p className="text-gray-300 text-sm mb-6">
+                ¿Deseas eliminar el área <span className="font-semibold text-white">{areaToDelete.name}</span>? Esta acción no se puede deshacer.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setAreaToDelete(null)}
+                  className="flex-1 bg-gray-800 hover:bg-gray-700 text-white px-4 py-2.5 rounded-lg transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleDelete}
+                  className="flex-1 bg-red-600 hover:bg-red-700 text-white px-4 py-2.5 rounded-lg transition-colors"
+                >
+                  Eliminar
                 </button>
               </div>
             </div>

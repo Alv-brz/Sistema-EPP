@@ -1,4 +1,4 @@
-import { AlertTriangle, Camera, CheckCircle } from 'lucide-react';
+import { AlertTriangle, Camera, CheckCircle, Maximize2 } from 'lucide-react';
 
 interface Detection {
   type: 'casco' | 'chaleco' | 'botas' | 'guantes' | 'lentes';
@@ -11,17 +11,21 @@ interface CameraFeedProps {
   location: string;
   streamUrl?: string;
   isStreaming?: boolean;
+  onExpand?: () => void;
 }
 
-export function CameraFeed({ cameraId, location, streamUrl, isStreaming = false }: CameraFeedProps) {
+export function CameraFeed({ cameraId, location, streamUrl, isStreaming = false, onExpand }: CameraFeedProps) {
   const detections: Detection[] = [];
   const hasViolation = false;
   const people = 0;
 
   return (
-    <div className={`bg-gray-900 rounded-lg overflow-hidden border-2 transition-all ${
+    <div
+      onDoubleClick={onExpand}
+      className={`bg-gray-900 rounded-lg overflow-hidden border-2 transition-all ${
       hasViolation ? 'border-red-500 shadow-[0_0_20px_rgba(239,68,68,0.5)]' : 'border-gray-700'
-    }`}>
+    }`}
+    >
       <div className="relative aspect-video bg-gradient-to-br from-gray-800 to-gray-900 flex items-center justify-center">
         {isStreaming && streamUrl ? (
           <img
@@ -62,6 +66,15 @@ export function CameraFeed({ cameraId, location, streamUrl, isStreaming = false 
           <div className={`w-2 h-2 rounded-full ${isStreaming ? 'bg-red-500 animate-pulse' : 'bg-gray-500'}`} />
           <span className="text-xs text-white">{isStreaming ? 'LIVE' : 'OFF'}</span>
         </div>
+
+        <button
+          type="button"
+          onClick={onExpand}
+          className="absolute top-4 left-4 p-2 bg-black/70 hover:bg-black/90 rounded text-white transition-colors"
+          title="Ampliar cámara"
+        >
+          <Maximize2 className="w-4 h-4" />
+        </button>
 
         {detections.length === 0 && (
           <div className="absolute bottom-4 right-4 bg-black/70 px-3 py-1 rounded text-xs text-gray-300">

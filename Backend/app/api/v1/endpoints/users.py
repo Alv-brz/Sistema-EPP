@@ -11,7 +11,7 @@ router = APIRouter(prefix="/users", tags=["users"])
 
 @router.get("", response_model=list[UserPublic])
 async def list_users(
-    _: dict = Depends(require_roles(UserRole.admin, UserRole.supervisor)),
+    _: dict = Depends(require_roles(UserRole.admin)),
     users: UserRepository = Depends(get_user_repository),
 ) -> list[UserPublic]:
     return [UserPublic(**user) for user in await users.list()]

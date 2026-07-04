@@ -25,6 +25,10 @@ class DetectionService:
         file: UploadFile,
         created_by: str,
         camera_id: str | None = None,
+        camera_code: str | None = None,
+        camera_object_id: str | None = None,
+        area_id: str | None = None,
+        area_name: str | None = None,
         location: str | None = None,
     ) -> dict:
         image_path = await self.storage.save_upload(file)
@@ -34,6 +38,10 @@ class DetectionService:
         saved = await self.detections.create(
             {
                 "camera_id": camera_id,
+                "camera_code": camera_code,
+                "camera_object_id": camera_object_id,
+                "area_id": area_id,
+                "area_name": area_name,
                 "location": location,
                 "timestamp": timestamp,
                 "image_path": str(image_path),

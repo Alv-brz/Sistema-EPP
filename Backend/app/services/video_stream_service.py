@@ -1,3 +1,4 @@
+import logging
 import threading
 import time
 from collections.abc import Generator
@@ -8,7 +9,11 @@ from typing import Any
 from pymongo import MongoClient
 
 from app.core.config import Settings
+from app.realtime.manager import manager
 from app.services.detector_service import DetectorService
+
+
+logger = logging.getLogger(__name__)
 
 
 def _load_cv2() -> Any:
@@ -72,9 +77,14 @@ class VideoWorker:
                     try:
                         prediction = self.detector.predict_frame(frame)
                         processed_frame = prediction["frame"]
-                        self._persist_prediction(prediction, detections_collection)
                     except Exception:
+                        logger.exception("YOLO detection failed for camera %s", self.camera_code)
                         processed_frame = frame
+                    if prediction:
+                        try:
+                            self._persist_prediction(prediction, detections_collection)
+                        except Exception:
+                            logger.exception("Could not persist detection for camera %s", self.camera_code)
                 encoded_ok, buffer = cv2.imencode(".jpg", processed_frame, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
                 if encoded_ok:
                     with self.lock:
@@ -93,26 +103,32 @@ class VideoWorker:
             return
         self.last_saved_at = now
         timestamp = datetime.now(UTC)
-        collection.insert_one(
-            {
-                "camera_id": self.camera_code,
-                "camera_object_id": self.camera_id,
-                "area_id": self.area_id,
-                "area_name": self.area_name,
-                "location": self.location,
-                "timestamp": timestamp,
-                "image_path": None,
-                "annotated_image_path": None,
-                "detections": prediction["detections"],
-                "detected_classes": prediction["detected_classes"],
-                "missing_epps": prediction["missing_epps"],
-                "severity": prediction["severity"],
-                "confidence_threshold": prediction["confidence_threshold"],
-                "processed_ms": prediction["processed_ms"],
-                "created_by": "camera-stream",
-                "created_at": timestamp,
-            }
-        )
+        document = {
+            "camera_id": self.camera_id,
+            "camera_code": self.camera_code,
+            "camera_object_id": self.camera_id,
+            "area_id": self.area_id,
+            "area_name": self.area_name,
+            "location": self.location,
+            "timestamp": timestamp,
+            "image_path": None,
+            "annotated_image_path": None,
+            "detections": prediction["detections"],
+            "detected_classes": prediction["detected_classes"],
+            "missing_epps": prediction["missing_epps"],
+            "severity": prediction["severity"],
+            "confidence_threshold": prediction["confidence_threshold"],
+            "processed_ms": prediction["processed_ms"],
+            "created_by": "camera-stream",
+            "created_at": timestamp,
+        }
+        result = collection.insert_one(document)
+        saved = {key: value for key, value in document.items() if key != "_id"}
+        saved["id"] = str(result.inserted_id)
+        self._broadcast_detection(saved)
+
+    def _broadcast_detection(self, detection: dict[str, Any]) -> None:
+        manager.enqueue_json({"event": "detection.created", "data": detection})
 
     def stop(self) -> None:
         self.running = False

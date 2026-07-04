@@ -196,7 +196,7 @@ export function DashboardPage() {
                           <AlertTriangle className="w-5 h-5 text-red-500" />
                         </div>
                         <div>
-                          <p className="text-white font-medium">{violation.camera_id ?? 'Sin cámara'}</p>
+                          <p className="text-white font-medium">{violation.camera_code ?? violation.camera_id ?? 'Sin cámara'}</p>
                           <p className="text-gray-400 text-sm">{violation.area_name ?? violation.location ?? 'Sin ubicación'}</p>
                           <div className="mt-1">
                             <span className="text-xs bg-red-500/20 text-red-400 px-2 py-1 rounded">

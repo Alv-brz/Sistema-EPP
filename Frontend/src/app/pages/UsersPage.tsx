@@ -27,6 +27,7 @@ export function UsersPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [editingUser, setEditingUser] = useState<UserData | null>(null);
+  const [userToDelete, setUserToDelete] = useState<UserData | null>(null);
   const [formData, setFormData] = useState({ name: '', email: '', password: '', role: 'inspector' as const, status: 'active' as const });
 
   const loadUsers = async () => {
@@ -100,15 +101,15 @@ export function UsersPage() {
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (confirm('¿Estás seguro de eliminar este usuario?')) {
-      try {
-        await deleteUser(id);
-        setUsers(users.filter(u => u.id !== id));
-        toast.success('Usuario eliminado correctamente');
-      } catch {
-        toast.error('No se pudo eliminar el usuario');
-      }
+  const handleDelete = async () => {
+    if (!userToDelete) return;
+    try {
+      await deleteUser(userToDelete.id);
+      setUsers(users.filter(u => u.id !== userToDelete.id));
+      setUserToDelete(null);
+      toast.success('Usuario eliminado correctamente');
+    } catch {
+      toast.error('No se pudo eliminar el usuario');
     }
   };
 
@@ -217,7 +218,7 @@ export function UsersPage() {
                   Editar
                 </button>
                 <button
-                  onClick={() => handleDelete(user.id)}
+                  onClick={() => setUserToDelete(user)}
                   className="p-2 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg transition-colors"
                 >
                   <Trash2 className="w-4 h-4" />
@@ -327,6 +328,36 @@ export function UsersPage() {
                   className="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-lg transition-colors"
                 >
                   {editingUser ? 'Actualizar' : 'Crear'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {userToDelete && (
+          <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+            <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 w-full max-w-md">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-bold text-white">Eliminar usuario</h2>
+                <button onClick={() => setUserToDelete(null)} className="text-gray-400 hover:text-white">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <p className="text-gray-300 text-sm mb-6">
+                ¿Deseas eliminar el usuario <span className="font-semibold text-white">{userToDelete.name}</span>? Esta acción no se puede deshacer.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setUserToDelete(null)}
+                  className="flex-1 bg-gray-800 hover:bg-gray-700 text-white px-4 py-2.5 rounded-lg transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleDelete}
+                  className="flex-1 bg-red-600 hover:bg-red-700 text-white px-4 py-2.5 rounded-lg transition-colors"
+                >
+                  Eliminar
                 </button>
               </div>
             </div>

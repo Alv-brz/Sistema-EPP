@@ -4,30 +4,44 @@ import { Bell, Volume2, VolumeX } from 'lucide-react';
 interface AlarmSystemProps {
   isActive: boolean;
   location: string;
+  enabled?: boolean;
+  volume?: number;
 }
 
-export function AlarmSystem({ isActive, location }: AlarmSystemProps) {
+export function AlarmSystem({ isActive, location, enabled = true, volume = 80 }: AlarmSystemProps) {
   const [isMuted, setIsMuted] = useState(false);
   const [audioContext, setAudioContext] = useState<AudioContext | null>(null);
+  const [lastPlayedAt, setLastPlayedAt] = useState(0);
 
   useEffect(() => {
     // Inicializar Web Audio API
-    const context = new (window.AudioContext || (window as any).webkitAudioContext)();
-    setAudioContext(context);
+    try {
+      const context = new (window.AudioContext || (window as any).webkitAudioContext)();
+      setAudioContext(context);
 
-    return () => {
-      context.close();
-    };
+      return () => {
+        context.close().catch(() => undefined);
+      };
+    } catch {
+      setAudioContext(null);
+    }
   }, []);
 
   useEffect(() => {
-    if (isActive && !isMuted && audioContext) {
-      playAlarm();
+    if (isActive && enabled && !isMuted && audioContext) {
+      const now = Date.now();
+      if (now - lastPlayedAt < 3000) return;
+      setLastPlayedAt(now);
+      playAlarm().catch(() => undefined);
     }
-  }, [isActive, isMuted, audioContext]);
+  }, [isActive, enabled, isMuted, audioContext, volume, lastPlayedAt]);
 
-  const playAlarm = () => {
+  const playAlarm = async () => {
     if (!audioContext) return;
+    if (audioContext.state === 'suspended') {
+      await audioContext.resume();
+    }
+    const gainValue = Math.max(0, Math.min(volume, 100)) / 100 * 0.3;
 
     // Crear un beep de alarma usando Web Audio API
     const oscillator = audioContext.createOscillator();
@@ -39,7 +53,7 @@ export function AlarmSystem({ isActive, location }: AlarmSystemProps) {
     oscillator.frequency.value = 800; // Frecuencia del beep
     oscillator.type = 'sine';
 
-    gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+    gainNode.gain.setValueAtTime(gainValue, audioContext.currentTime);
     gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
 
     oscillator.start(audioContext.currentTime);
@@ -47,7 +61,7 @@ export function AlarmSystem({ isActive, location }: AlarmSystemProps) {
 
     // Segundo beep
     setTimeout(() => {
-      if (!isMuted && isActive) {
+      if (!isMuted && isActive && enabled && audioContext.state !== 'closed') {
         const osc2 = audioContext.createOscillator();
         const gain2 = audioContext.createGain();
 
@@ -57,7 +71,7 @@ export function AlarmSystem({ isActive, location }: AlarmSystemProps) {
         osc2.frequency.value = 1000;
         osc2.type = 'sine';
 
-        gain2.gain.setValueAtTime(0.3, audioContext.currentTime);
+        gain2.gain.setValueAtTime(gainValue, audioContext.currentTime);
         gain2.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
 
         osc2.start(audioContext.currentTime);

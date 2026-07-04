@@ -31,3 +31,16 @@ class YoloSettingsUpdate(BaseModel):
     confidence_threshold: float = Field(ge=0.01, le=1.0)
     enabled_classes: list[str]
     detection_enabled: bool
+
+
+class GeneralSettingsPublic(BaseModel):
+    alarm_sound_enabled: bool = True
+    alarm_volume: int = Field(default=80, ge=0, le=100)
+    email_alerts: bool = False
+    alert_recipients: str = ""
+    auto_archive: bool = True
+    retention_days: int = Field(default=365, ge=1, le=3650)
+
+
+class GeneralSettingsUpdate(GeneralSettingsPublic):
+    pass

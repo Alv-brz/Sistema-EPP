@@ -35,7 +35,7 @@ async def list_cameras(
 @router.post("", response_model=CameraPublic, status_code=status.HTTP_201_CREATED)
 async def create_camera(
     payload: CameraCreate,
-    _: dict = Depends(require_roles(UserRole.admin, UserRole.supervisor)),
+    _: dict = Depends(require_roles(UserRole.admin)),
     cameras: CameraRepository = Depends(get_camera_repository),
 ) -> CameraPublic:
     try:
@@ -49,7 +49,7 @@ async def create_camera(
 async def update_camera(
     camera_id: str,
     payload: CameraUpdate,
-    _: dict = Depends(require_roles(UserRole.admin, UserRole.supervisor)),
+    _: dict = Depends(require_roles(UserRole.admin)),
     cameras: CameraRepository = Depends(get_camera_repository),
 ) -> CameraPublic:
     try:
@@ -75,7 +75,7 @@ async def delete_camera(
 @router.post("/{camera_id}/start", response_model=CameraPublic)
 async def start_camera(
     camera_id: str,
-    _: dict = Depends(require_roles(UserRole.admin, UserRole.supervisor, UserRole.inspector)),
+    _: dict = Depends(require_roles(UserRole.admin, UserRole.supervisor)),
     cameras: CameraRepository = Depends(get_camera_repository),
     settings: Settings = Depends(get_settings),
 ) -> CameraPublic:
@@ -107,7 +107,7 @@ async def start_camera(
 @router.post("/{camera_id}/stop", response_model=CameraPublic)
 async def stop_camera(
     camera_id: str,
-    _: dict = Depends(require_roles(UserRole.admin, UserRole.supervisor, UserRole.inspector)),
+    _: dict = Depends(require_roles(UserRole.admin, UserRole.supervisor)),
     cameras: CameraRepository = Depends(get_camera_repository),
 ) -> CameraPublic:
     video_stream_manager.stop(camera_id)
