@@ -115,6 +115,7 @@ class VideoWorker:
             "annotated_image_path": None,
             "detections": prediction["detections"],
             "detected_classes": prediction["detected_classes"],
+            "detected_objects": prediction.get("detected_objects", []),
             "missing_epps": prediction["missing_epps"],
             "severity": prediction["severity"],
             "confidence_threshold": prediction["confidence_threshold"],

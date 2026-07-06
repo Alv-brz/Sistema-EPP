@@ -8,6 +8,7 @@ from pymongo import MongoClient
 
 from app.core.config import Settings
 from app.repositories.yolo_settings import SETTINGS_KEY, default_yolo_settings
+from app.schemas.yolo_settings import normalize_enabled_classes, normalize_enabled_objects, normalize_model_name
 
 
 class DetectorService:
@@ -31,11 +32,13 @@ class DetectorService:
             document = None
         runtime = default_yolo_settings()
         if document:
+            active_model = normalize_model_name(document.get("active_model", runtime["active_model"]))
             runtime.update(
                 {
-                    "active_model": document.get("active_model", runtime["active_model"]),
+                    "active_model": active_model,
                     "confidence_threshold": document.get("confidence_threshold", runtime["confidence_threshold"]),
-                    "enabled_classes": document.get("enabled_classes", runtime["enabled_classes"]),
+                    "enabled_classes": normalize_enabled_classes(active_model, document.get("enabled_classes", runtime["enabled_classes"])),
+                    "enabled_objects": normalize_enabled_objects(active_model, document.get("enabled_objects")),
                     "detection_enabled": document.get("detection_enabled", runtime["detection_enabled"]),
                 }
             )
@@ -78,6 +81,14 @@ class DetectorService:
             "person": "persona",
             "people": "persona",
             "persona": "persona",
+            "safety_cone": "cono_seguridad",
+            "cone": "cono_seguridad",
+            "cono_seguridad": "cono_seguridad",
+            "machinery": "maquinaria",
+            "machine": "maquinaria",
+            "maquinaria": "maquinaria",
+            "vehicle": "vehiculo",
+            "vehiculo": "vehiculo",
             "casco": "casco",
             "helmet": "casco",
             "hardhat": "casco",
@@ -100,9 +111,20 @@ class DetectorService:
             "goggles": "lentes",
             "no_goggle": "sin_lentes",
             "no_goggles": "sin_lentes",
+            "mask": "mascarilla",
+            "face_mask": "mascarilla",
             "no_mask": "sin_mascarilla",
         }
         return aliases.get(value, value)
+
+    @staticmethod
+    def _should_include_detection(label: str, enabled_classes: set[str], enabled_objects: set[str]) -> bool:
+        return label in enabled_classes or label in enabled_objects
+
+    @staticmethod
+    def _detected_objects(detected_classes: set[str]) -> list[str]:
+        object_order = ["persona", "vehiculo", "maquinaria", "cono_seguridad"]
+        return [item for item in object_order if item in detected_classes]
 
     @classmethod
     def _enabled_normalized_classes(cls, enabled_classes: list[str]) -> set[str]:
@@ -120,6 +142,8 @@ class DetectorService:
                 normalized.add("sin_botas")
             if label == "lentes":
                 normalized.add("sin_lentes")
+            if label == "mascarilla":
+                normalized.add("sin_mascarilla")
         return normalized
 
     @staticmethod
@@ -130,11 +154,12 @@ class DetectorService:
             "sin_guantes": "guantes",
             "sin_botas": "botas",
             "sin_lentes": "lentes",
+            "sin_mascarilla": "mascarilla",
         }.get(label)
 
     @staticmethod
     def _enabled_epps(enabled_classes: set[str]) -> set[str]:
-        return {item for item in enabled_classes if item in {"casco", "chaleco", "guantes", "botas", "lentes"}}
+        return {item for item in enabled_classes if item in {"casco", "chaleco", "mascarilla", "guantes", "botas", "lentes"}}
 
     @staticmethod
     def _severity(missing_epps: set[str]) -> str:
@@ -144,6 +169,67 @@ class DetectorService:
             return "medium"
         return "low"
 
+    @staticmethod
+    def _display_label(label: str) -> str:
+        return {
+            "persona": "Persona",
+            "cono_seguridad": "Cono de Seguridad",
+            "maquinaria": "Maquinaria",
+            "vehiculo": "Vehículo",
+            "casco": "Casco",
+            "chaleco": "Chaleco",
+            "guantes": "Guantes",
+            "botas": "Botas",
+            "lentes": "Lentes",
+            "mascarilla": "Mascarilla",
+            "sin_casco": "Sin Casco",
+            "sin_chaleco": "Sin Chaleco",
+            "sin_guantes": "Sin Guantes",
+            "sin_botas": "Sin Botas",
+            "sin_lentes": "Sin Lentes",
+            "sin_mascarilla": "Sin Mascarilla",
+        }.get(label, label.replace("_", " ").title())
+
+    @staticmethod
+    def _box_colors() -> dict[str, tuple[int, int, int]]:
+        return {
+            "persona": (59, 130, 246),
+            "cono_seguridad": (251, 146, 60),
+            "maquinaria": (147, 51, 234),
+            "vehiculo": (14, 165, 233),
+            "casco": (16, 185, 129),
+            "chaleco": (245, 158, 11),
+            "guantes": (168, 85, 247),
+            "botas": (236, 72, 153),
+            "lentes": (34, 211, 238),
+            "mascarilla": (20, 184, 166),
+            "sin_casco": (239, 68, 68),
+            "sin_chaleco": (239, 68, 68),
+            "sin_guantes": (239, 68, 68),
+            "sin_botas": (239, 68, 68),
+            "sin_lentes": (239, 68, 68),
+            "sin_mascarilla": (239, 68, 68),
+        }
+
+    def _draw_box(self, frame: Any, label: str, confidence: float, xyxy: list[float]) -> None:
+        try:
+            import cv2
+        except ImportError:
+            return
+        x1, y1, x2, y2 = [int(value) for value in xyxy]
+        color = self._box_colors().get(label, (255, 255, 255))
+        cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+        text = f"{self._display_label(label)} {confidence:.2f}"
+        cv2.putText(
+            frame,
+            text,
+            (x1, max(y1 - 8, 20)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.6,
+            color,
+            2,
+        )
+
     def predict_frame(self, frame: Any) -> dict[str, Any]:
         runtime = self._get_runtime_settings()
         if not runtime["detection_enabled"]:
@@ -151,6 +237,7 @@ class DetectorService:
                 "frame": frame,
                 "detections": [],
                 "detected_classes": [],
+                "detected_objects": [],
                 "missing_epps": [],
                 "severity": "low",
                 "confidence_threshold": runtime["confidence_threshold"],
@@ -158,6 +245,7 @@ class DetectorService:
             }
         model = self._load_model(runtime["active_model"])
         enabled_classes = self._enabled_normalized_classes(runtime["enabled_classes"])
+        enabled_objects = set(runtime.get("enabled_objects", []))
         start = time.perf_counter()
         with self._model_lock:
             results = model.predict(source=frame, conf=runtime["confidence_threshold"], verbose=False)
@@ -167,19 +255,6 @@ class DetectorService:
         detected_classes: set[str] = set()
         present_epps: set[str] = set()
         annotated_frame = frame.copy()
-        colors = {
-            "persona": (59, 130, 246),
-            "casco": (16, 185, 129),
-            "chaleco": (245, 158, 11),
-            "guantes": (168, 85, 247),
-            "botas": (236, 72, 153),
-            "lentes": (34, 211, 238),
-            "sin_casco": (239, 68, 68),
-            "sin_chaleco": (239, 68, 68),
-            "sin_guantes": (239, 68, 68),
-            "sin_botas": (239, 68, 68),
-            "sin_lentes": (239, 68, 68),
-        }
         missing_epps: set[str] = set()
 
         for result in results:
@@ -188,7 +263,7 @@ class DetectorService:
                 class_id = int(box.cls[0].item())
                 raw_label = str(names.get(class_id, class_id))
                 label = self._normalize_label(raw_label)
-                if label not in enabled_classes:
+                if not self._should_include_detection(label, enabled_classes, enabled_objects):
                     continue
                 confidence = float(box.conf[0].item())
                 xyxy = [float(value) for value in box.xyxy[0].tolist()]
@@ -197,7 +272,7 @@ class DetectorService:
                 if missing_from_negative:
                     missing_epps.add(missing_from_negative)
                 else:
-                    if label in {"casco", "chaleco", "guantes", "botas", "lentes"}:
+                    if label in {"casco", "chaleco", "guantes", "botas", "lentes", "mascarilla"}:
                         present_epps.add(label)
                 detections.append(
                     {
@@ -207,24 +282,7 @@ class DetectorService:
                         "box": xyxy,
                     }
                 )
-                x1, y1, x2, y2 = [int(value) for value in xyxy]
-                color = colors.get(label, (255, 255, 255))
-                try:
-                    import cv2
-
-                    cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), color, 2)
-                    text = f"{label} {confidence:.2f}"
-                    cv2.putText(
-                        annotated_frame,
-                        text,
-                        (x1, max(y1 - 8, 20)),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.6,
-                        color,
-                        2,
-                    )
-                except ImportError:
-                    pass
+                self._draw_box(annotated_frame, label, confidence, xyxy)
 
         if "persona" in detected_classes:
             missing_epps.update(self._enabled_epps(enabled_classes) - present_epps)
@@ -233,6 +291,7 @@ class DetectorService:
             "frame": annotated_frame,
             "detections": detections,
             "detected_classes": sorted(detected_classes),
+            "detected_objects": self._detected_objects(detected_classes),
             "missing_epps": sorted(missing_epps),
             "severity": self._severity(missing_epps),
             "confidence_threshold": runtime["confidence_threshold"],
@@ -245,6 +304,7 @@ class DetectorService:
             return {
                 "detections": [],
                 "detected_classes": [],
+                "detected_objects": [],
                 "missing_epps": [],
                 "severity": "low",
                 "confidence_threshold": runtime["confidence_threshold"],
@@ -253,6 +313,7 @@ class DetectorService:
             }
         model = self._load_model(runtime["active_model"])
         enabled_classes = self._enabled_normalized_classes(runtime["enabled_classes"])
+        enabled_objects = set(runtime.get("enabled_objects", []))
         start = time.perf_counter()
         results = model.predict(source=str(image_path), conf=runtime["confidence_threshold"], verbose=False)
         processed_ms = int((time.perf_counter() - start) * 1000)
@@ -261,13 +322,22 @@ class DetectorService:
         detected_classes: set[str] = set()
         present_epps: set[str] = set()
         missing_epps: set[str] = set()
+        annotated_image = None
+        try:
+            import cv2
+
+            annotated_image = cv2.imread(str(image_path))
+            if annotated_image is None:
+                annotated_path = None  # type: ignore[assignment]
+        except ImportError:
+            annotated_path = None  # type: ignore[assignment]
         for result in results:
             names = result.names
             for box in result.boxes:
                 class_id = int(box.cls[0].item())
                 raw_label = str(names.get(class_id, class_id))
                 label = self._normalize_label(raw_label)
-                if label not in enabled_classes:
+                if not self._should_include_detection(label, enabled_classes, enabled_objects):
                     continue
                 confidence = float(box.conf[0].item())
                 xyxy = [float(value) for value in box.xyxy[0].tolist()]
@@ -276,15 +346,17 @@ class DetectorService:
                 if missing_from_negative:
                     missing_epps.add(missing_from_negative)
                 else:
-                    if label in {"casco", "chaleco", "guantes", "botas", "lentes"}:
+                    if label in {"casco", "chaleco", "guantes", "botas", "lentes", "mascarilla"}:
                         present_epps.add(label)
                 detections.append({"label": label, "raw_label": raw_label, "confidence": confidence, "box": xyxy})
+                if annotated_image is not None:
+                    self._draw_box(annotated_image, label, confidence, xyxy)
 
-            plotted = result.plot()
+        if annotated_path and annotated_image is not None:
             try:
                 import cv2
 
-                cv2.imwrite(str(annotated_path), plotted)
+                cv2.imwrite(str(annotated_path), annotated_image)
             except ImportError:
                 annotated_path = None  # type: ignore[assignment]
 
@@ -294,6 +366,7 @@ class DetectorService:
         return {
             "detections": detections,
             "detected_classes": sorted(detected_classes),
+            "detected_objects": self._detected_objects(detected_classes),
             "missing_epps": sorted(missing_epps),
             "severity": self._severity(missing_epps),
             "confidence_threshold": runtime["confidence_threshold"],

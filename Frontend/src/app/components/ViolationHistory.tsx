@@ -1,4 +1,5 @@
 import { Calendar, Download, MapPin, Camera } from 'lucide-react';
+import { eppLabel } from '../utils/labels';
 
 interface ViolationRecord {
   id: string;
@@ -69,7 +70,7 @@ export function ViolationHistory({ violations }: ViolationHistoryProps) {
                     key={idx}
                     className="bg-red-500/20 text-red-400 text-xs px-2 py-1 rounded"
                   >
-                    {epp.toUpperCase()}
+                    {eppLabel(epp)}
                   </span>
                 ))}
               </div>

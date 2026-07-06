@@ -21,6 +21,7 @@ import { canControlCameras, canManageCameras } from '../auth/permissions';
 import { useAuth } from '../contexts/AuthContext';
 import { ApiCamera, getCameraStreamUrl, listCameras, startCamera, stopCamera } from '../services/api';
 import { toast } from 'sonner';
+import { formatEppList } from '../utils/labels';
 
 type CameraSignal = 'streaming' | 'stopped' | 'error' | 'no-signal';
 
@@ -370,7 +371,7 @@ export function LiveMonitoringPage() {
                       {selectedAlerts.map((alert) => (
                         <div key={`${alert.id}-${alert.lastDetectedAt}`} className="bg-red-500/10 border border-red-500/30 rounded-lg p-3">
                           <div className="flex items-center justify-between gap-2">
-                            <p className="text-sm text-white font-medium">{alert.missingEpps.join(', ')}</p>
+                            <p className="text-sm text-white font-medium">{formatEppList(alert.missingEpps)}</p>
                             {alert.repetitions > 1 && <span className="text-xs text-red-300">x{alert.repetitions}</span>}
                           </div>
                           <p className="text-xs text-gray-400 mt-1">{alert.location}</p>

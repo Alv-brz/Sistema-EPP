@@ -47,8 +47,11 @@ def get_camera_repository(db: AsyncIOMotorDatabase = Depends(get_db)) -> CameraR
     return CameraRepository(db)
 
 
-def get_yolo_settings_repository(db: AsyncIOMotorDatabase = Depends(get_db)) -> YoloSettingsRepository:
-    return YoloSettingsRepository(db)
+def get_yolo_settings_repository(
+    db: AsyncIOMotorDatabase = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> YoloSettingsRepository:
+    return YoloSettingsRepository(db, settings)
 
 
 @lru_cache

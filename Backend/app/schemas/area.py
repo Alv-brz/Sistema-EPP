@@ -2,13 +2,14 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
-from app.models.area import RequiredEPP
+from app.models.area import AllowedObject, RequiredEPP
 
 
 class AreaBase(BaseModel):
     name: str = Field(min_length=1)
     description: str = ""
     required_epps: list[RequiredEPP] = Field(default_factory=list)
+    allowed_objects: list[AllowedObject] = Field(default_factory=list)
 
 
 class AreaCreate(AreaBase):

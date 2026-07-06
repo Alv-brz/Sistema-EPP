@@ -4,6 +4,7 @@ import { ApiArea, ApiDetection, exportDetections, ExportFormat, getAreas, getDet
 import { toast } from 'sonner';
 import { useAuth } from '../contexts/AuthContext';
 import { canExportData } from '../auth/permissions';
+import { eppLabel, objectLabel } from '../utils/labels';
 
 export function ViolationsHistoryPage() {
   const { user } = useAuth();
@@ -11,6 +12,7 @@ export function ViolationsHistoryPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterArea, setFilterArea] = useState('all');
   const [filterEPP, setFilterEPP] = useState('all');
+  const [filterObject, setFilterObject] = useState('all');
   const [violations, setViolations] = useState<ApiDetection[]>([]);
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
@@ -46,6 +48,7 @@ export function ViolationsHistoryPage() {
           search: searchTerm.trim() || undefined,
           area: filterArea,
           epp: filterEPP,
+          detectedObject: filterObject,
           violationsOnly: true,
         });
         setViolations(response.items);
@@ -59,11 +62,11 @@ export function ViolationsHistoryPage() {
     };
 
     loadViolations();
-  }, [page, pageSize, searchTerm, filterArea, filterEPP]);
+  }, [page, pageSize, searchTerm, filterArea, filterEPP, filterObject]);
 
   useEffect(() => {
     setPage(1);
-  }, [searchTerm, filterArea, filterEPP, pageSize]);
+  }, [searchTerm, filterArea, filterEPP, filterObject, pageSize]);
 
   const formatDate = (timestamp?: string) => {
     if (!timestamp) return 'Sin fecha';
@@ -104,6 +107,7 @@ export function ViolationsHistoryPage() {
         search: searchTerm.trim() || undefined,
         area: filterArea,
         epp: filterEPP,
+        detectedObject: filterObject,
         violationsOnly: true,
       });
       toast.success('Exportación generada correctamente');
@@ -112,6 +116,13 @@ export function ViolationsHistoryPage() {
     } finally {
       setExportingFormat(null);
     }
+  };
+
+  const detectedObjects = (violation: ApiDetection) => {
+    const fromField = violation.detected_objects ?? [];
+    if (fromField.length > 0) return fromField;
+    const objectLabels = new Set(['persona', 'vehiculo', 'maquinaria', 'cono_seguridad']);
+    return Array.from(new Set(violation.detections.map((item) => item.label).filter((label): label is string => Boolean(label && objectLabels.has(label)))));
   };
 
   const visiblePages = () => {
@@ -145,7 +156,7 @@ export function ViolationsHistoryPage() {
       <div className="p-8">
         {/* Filters Bar */}
         <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 mb-6">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
             {/* Search */}
             <div className="md:col-span-2">
               <div className="relative">
@@ -186,9 +197,25 @@ export function ViolationsHistoryPage() {
                 <option value="all">Todos los EPPs</option>
                 <option value="casco">Casco</option>
                 <option value="chaleco">Chaleco</option>
+                <option value="mascarilla">Mascarilla</option>
                 <option value="botas">Botas</option>
                 <option value="guantes">Guantes</option>
                 <option value="lentes">Lentes</option>
+              </select>
+            </div>
+
+            {/* Filter by Object */}
+            <div>
+              <select
+                value={filterObject}
+                onChange={(e) => setFilterObject(e.target.value)}
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-blue-500 transition-colors appearance-none cursor-pointer"
+              >
+                <option value="all">Objetos Detectados: Todos</option>
+                <option value="persona">Persona</option>
+                <option value="vehiculo">Vehículo</option>
+                <option value="maquinaria">Maquinaria</option>
+                <option value="cono_seguridad">Cono de Seguridad</option>
               </select>
             </div>
           </div>
@@ -247,6 +274,7 @@ export function ViolationsHistoryPage() {
                 <th className="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase">Ubicación</th>
                 <th className="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase">Fecha/Hora</th>
                 <th className="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase">EPPs Faltantes</th>
+                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase">Objetos Detectados</th>
                 <th className="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase">Severidad</th>
                 <th className="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase">Acciones</th>
               </tr>
@@ -275,10 +303,13 @@ export function ViolationsHistoryPage() {
                           key={idx}
                           className="bg-red-500/20 text-red-400 text-xs px-2 py-1 rounded"
                         >
-                          {epp.toUpperCase()}
+                          {eppLabel(epp)}
                         </span>
                       ))}
                     </div>
+                  </td>
+                  <td className="px-6 py-4 text-sm text-gray-300">
+                    {detectedObjects(violation).map(objectLabel).join(', ') || 'Sin objetos'}
                   </td>
                   <td className="px-6 py-4">
                     <span className={`text-xs px-3 py-1 rounded-full font-medium ${getSeverityColor(severityLabel(violation.severity))}`}>
@@ -298,14 +329,14 @@ export function ViolationsHistoryPage() {
               ))}
               {loading && (
                 <tr>
-                  <td colSpan={7} className="px-6 py-10 text-center text-gray-500">
+                  <td colSpan={8} className="px-6 py-10 text-center text-gray-500">
                     Cargando infracciones...
                   </td>
                 </tr>
               )}
               {!loading && violations.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-6 py-10 text-center text-gray-500">
+                  <td colSpan={8} className="px-6 py-10 text-center text-gray-500">
                     No hay infracciones registradas
                   </td>
                 </tr>

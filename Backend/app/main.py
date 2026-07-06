@@ -26,7 +26,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         password=settings.default_admin_password,
     )
     await CameraRepository(get_database()).ensure_defaults()
-    settings_repository = YoloSettingsRepository(get_database())
+    settings_repository = YoloSettingsRepository(get_database(), settings)
     await settings_repository.get()
     await settings_repository.get_general()
     await manager.start()

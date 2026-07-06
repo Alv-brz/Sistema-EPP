@@ -18,7 +18,7 @@ from app.repositories.cameras import CameraRepository
 from app.repositories.detections import DetectionRepository
 from app.schemas.detection import DetectionListResponse, DetectionPublic
 from app.services.detection_service import DetectionService
-from app.services.export_service import build_detections_pdf, build_detections_xlsx, csv_bytes, format_datetime
+from app.services.export_service import build_detections_pdf, build_detections_xlsx, csv_bytes, epp_display_names, format_datetime, object_display_names
 
 
 router = APIRouter(prefix="/detections", tags=["detections"])
@@ -37,9 +37,13 @@ def parse_date_filter(value: str | None, end_of_day: bool = False) -> datetime |
 
 
 def to_public(document: dict) -> DetectionPublic:
+    document = dict(document)
     detection_id = document["id"]
     image_path = document.get("image_path")
     annotated_path = document.get("annotated_image_path")
+    if "detected_objects" not in document:
+        object_labels = {"persona", "vehiculo", "maquinaria", "cono_seguridad"}
+        document["detected_objects"] = [item for item in document.get("detected_classes", []) if item in object_labels]
     return DetectionPublic(
         **document,
         image_url=f"/api/v1/detections/{detection_id}/image" if image_path else None,
@@ -65,6 +69,7 @@ async def list_filtered_detections_for_export(
     search: str | None = None,
     area: str | None = None,
     epp: str | None = None,
+    detected_object: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
     violations_only: bool = True,
@@ -76,6 +81,7 @@ async def list_filtered_detections_for_export(
         search=search.strip() if search else None,
         area=area.strip() if area and area != "all" else None,
         epp=epp.strip() if epp and epp != "all" else None,
+        detected_object=detected_object.strip() if detected_object and detected_object != "all" else None,
         date_from=parse_date_filter(date_from),
         date_to=parse_date_filter(date_to, end_of_day=True),
         violations_only=violations_only,
@@ -126,6 +132,7 @@ async def detection_history(
     search: str | None = None,
     area: str | None = None,
     epp: str | None = None,
+    detected_object: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
     violations_only: bool = False,
@@ -143,6 +150,7 @@ async def detection_history(
             search=search.strip() if search else None,
             area=area.strip() if area and area != "all" else None,
             epp=epp.strip() if epp and epp != "all" else None,
+            detected_object=detected_object.strip() if detected_object and detected_object != "all" else None,
             date_from=parse_date_filter(date_from),
             date_to=parse_date_filter(date_to, end_of_day=True),
             violations_only=violations_only,
@@ -169,12 +177,13 @@ async def export_detections_pdf(
     search: str | None = None,
     area: str | None = None,
     epp: str | None = None,
+    detected_object: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
     current_user: dict = Depends(require_roles(UserRole.admin, UserRole.supervisor)),
     repository: DetectionRepository = Depends(get_detection_repository),
 ) -> Response:
-    items = await list_filtered_detections_for_export(repository, camera_id, search, area, epp, date_from, date_to)
+    items = await list_filtered_detections_for_export(repository, camera_id, search, area, epp, detected_object, date_from, date_to)
     content = build_detections_pdf(items, current_user.get("name", current_user.get("email", "")))
     return attachment_response(content, "application/pdf", dated_filename("infracciones_epp", "pdf"))
 
@@ -185,12 +194,13 @@ async def export_detections_excel(
     search: str | None = None,
     area: str | None = None,
     epp: str | None = None,
+    detected_object: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
     current_user: dict = Depends(require_roles(UserRole.admin, UserRole.supervisor)),
     repository: DetectionRepository = Depends(get_detection_repository),
 ) -> Response:
-    items = await list_filtered_detections_for_export(repository, camera_id, search, area, epp, date_from, date_to)
+    items = await list_filtered_detections_for_export(repository, camera_id, search, area, epp, detected_object, date_from, date_to)
     content = build_detections_xlsx(items, current_user.get("name", current_user.get("email", "")))
     return attachment_response(
         content,
@@ -205,21 +215,23 @@ async def export_detections_csv(
     search: str | None = None,
     area: str | None = None,
     epp: str | None = None,
+    detected_object: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
     _: dict = Depends(require_roles(UserRole.admin, UserRole.supervisor)),
     repository: DetectionRepository = Depends(get_detection_repository),
 ) -> Response:
-    items = await list_filtered_detections_for_export(repository, camera_id, search, area, epp, date_from, date_to)
+    items = await list_filtered_detections_for_export(repository, camera_id, search, area, epp, detected_object, date_from, date_to)
     rows: list[list[object]] = [
-        ["ID", "Camara", "Ubicacion", "Fecha/Hora", "EPP faltantes", "Severidad", "Estado"],
+        ["ID", "Camara", "Ubicacion", "Fecha/Hora", "EPP faltantes", "Objetos detectados", "Severidad", "Estado"],
         *[
             [
                 item.get("id", ""),
                 item.get("camera_code") or item.get("camera_id") or "",
                 item.get("area_name") or item.get("location") or "",
                 format_datetime(item.get("created_at") or item.get("timestamp")),
-                ", ".join(item.get("missing_epps", [])),
+                epp_display_names(item.get("missing_epps", [])),
+                object_display_names(item),
                 item.get("severity", ""),
                 item.get("status", "Nueva"),
             ]

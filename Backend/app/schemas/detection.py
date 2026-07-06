@@ -24,6 +24,7 @@ class DetectionPublic(BaseModel):
     annotated_image_url: str | None = None
     detections: list[dict[str, Any]]
     detected_classes: list[str] = []
+    detected_objects: list[str] = []
     missing_epps: list[str]
     severity: DetectionSeverity
     confidence_threshold: float

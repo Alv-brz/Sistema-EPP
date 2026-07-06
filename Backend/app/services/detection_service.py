@@ -48,6 +48,7 @@ class DetectionService:
                 "annotated_image_path": prediction["annotated_image_path"],
                 "detections": prediction["detections"],
                 "detected_classes": prediction["detected_classes"],
+                "detected_objects": prediction["detected_objects"],
                 "missing_epps": prediction["missing_epps"],
                 "severity": prediction["severity"],
                 "confidence_threshold": prediction["confidence_threshold"],

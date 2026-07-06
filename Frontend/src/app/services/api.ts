@@ -58,6 +58,7 @@ export interface ApiDetection {
   image_url: string;
   annotated_image_url: string | null;
   detections: Array<{ label?: string; confidence?: number; box?: number[] }>;
+  detected_objects: string[];
   missing_epps: string[];
   severity: 'low' | 'medium' | 'high';
   confidence_threshold: number;
@@ -83,6 +84,7 @@ export interface DetectionHistoryParams {
   search?: string;
   area?: string;
   epp?: string;
+  detectedObject?: string;
   dateFrom?: string;
   dateTo?: string;
   violationsOnly?: boolean;
@@ -96,6 +98,9 @@ export interface DashboardStats {
   compliance: number;
   people_detected_today: number;
   people_currently_in_area: number;
+  vehicles_detected_today: number;
+  machinery_detected_today: number;
+  cones_detected_today: number;
   recent_violations: ApiDetection[];
 }
 
@@ -112,17 +117,19 @@ export interface ApiArea {
   id: string;
   name: string;
   description: string;
-  required_epps: Array<'casco' | 'chaleco' | 'guantes' | 'botas' | 'lentes'>;
+  required_epps: Array<'casco' | 'chaleco' | 'mascarilla' | 'guantes' | 'botas' | 'lentes'>;
+  allowed_objects: Array<'persona' | 'vehiculo' | 'maquinaria' | 'cono_seguridad'>;
   created_at: string;
   updated_at: string;
 }
 
-export type AreaPayload = Pick<ApiArea, 'name' | 'description' | 'required_epps'>;
+export type AreaPayload = Pick<ApiArea, 'name' | 'description' | 'required_epps' | 'allowed_objects'>;
 
 export interface YoloSettings {
-  active_model: 'best.pt' | 'belst.pt' | 'bes33t.pt';
+  active_model: string;
   confidence_threshold: number;
   enabled_classes: string[];
+  enabled_objects: string[];
   detection_enabled: boolean;
   available_models: string[];
   available_classes: string[];
@@ -298,6 +305,9 @@ export function getDetectionHistory(options: DetectionHistoryParams | string = {
   if (filters.epp && filters.epp !== 'all') {
     params.set('epp', filters.epp);
   }
+  if (filters.detectedObject && filters.detectedObject !== 'all') {
+    params.set('detected_object', filters.detectedObject);
+  }
   if (filters.dateFrom) {
     params.set('date_from', filters.dateFrom);
   }
@@ -354,6 +364,7 @@ export function exportDetections(format: ExportFormat, filters: DetectionHistory
   if (filters.search) params.set('search', filters.search);
   if (filters.area && filters.area !== 'all') params.set('area', filters.area);
   if (filters.epp && filters.epp !== 'all') params.set('epp', filters.epp);
+  if (filters.detectedObject && filters.detectedObject !== 'all') params.set('detected_object', filters.detectedObject);
   if (filters.dateFrom) params.set('date_from', filters.dateFrom);
   if (filters.dateTo) params.set('date_to', filters.dateTo);
   const extension = exportExtension(format);
@@ -368,7 +379,7 @@ export function getYoloSettings(): Promise<YoloSettings> {
   return apiRequest<YoloSettings>('/settings/yolo');
 }
 
-export function updateYoloSettings(payload: Pick<YoloSettings, 'active_model' | 'confidence_threshold' | 'enabled_classes' | 'detection_enabled'>): Promise<YoloSettings> {
+export function updateYoloSettings(payload: Pick<YoloSettings, 'active_model' | 'confidence_threshold' | 'enabled_classes' | 'enabled_objects' | 'detection_enabled'>): Promise<YoloSettings> {
   return apiRequest<YoloSettings>('/settings/yolo', { method: 'PUT', body: JSON.stringify(payload) });
 }
 

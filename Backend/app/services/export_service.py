@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
 from html import escape
 from io import BytesIO
 import csv
@@ -10,6 +10,7 @@ import zipfile
 
 BRAND = "Sistema EPPs Monitor"
 SUBTITLE = "Detección Inteligente de Equipos de Protección Personal"
+DISPLAY_TZ = timezone(timedelta(hours=-5), "America/Lima")
 
 
 def format_datetime(value: datetime | str | None) -> str:
@@ -22,7 +23,7 @@ def format_datetime(value: datetime | str | None) -> str:
             return value
     if value.tzinfo is None:
         value = value.replace(tzinfo=UTC)
-    return value.astimezone(UTC).strftime("%d/%m/%Y %H:%M")
+    return value.astimezone(DISPLAY_TZ).strftime("%d/%m/%Y %H:%M")
 
 
 def csv_bytes(rows: list[list[object]]) -> bytes:
@@ -40,6 +41,27 @@ def _pdf_text(value: object) -> str:
 
 def _pdf_stream_text(value: object) -> str:
     return _pdf_text(value).encode("latin-1", "replace").decode("latin-1")
+
+
+def _wrap_pdf_text(value: object, width: int) -> list[str]:
+    text = str(value if value is not None else "")
+    max_chars = max(8, width // 4)
+    lines: list[str] = []
+    for segment in text.splitlines() or [""]:
+        words = segment.split(" ")
+        current = ""
+        for word in words:
+            if not current:
+                current = word
+                continue
+            if len(current) + 1 + len(word) <= max_chars:
+                current = f"{current} {word}"
+            else:
+                lines.append(current)
+                current = word
+        if current:
+            lines.append(current)
+    return lines or [""]
 
 
 @dataclass
@@ -135,17 +157,18 @@ class SimplePdf:
             x += width
         self.y -= row_h
         for row_index, row in enumerate(rows):
-            self.ensure_space(row_h + 4)
+            wrapped_cells = [_wrap_pdf_text(value, width - 8) for value, width in zip(row, widths)]
+            line_count = max((len(lines) for lines in wrapped_cells), default=1)
+            current_row_h = max(row_h, 8 + line_count * 9)
+            self.ensure_space(current_row_h + 4)
             fill = "0.98 0.99 1" if row_index % 2 == 0 else "0.94 0.96 0.98"
-            self.rect(x0, self.y - row_h + 4, sum(widths), row_h, fill, "0.84 0.87 0.91")
+            self.rect(x0, self.y - current_row_h + 4, sum(widths), current_row_h, fill, "0.84 0.87 0.91")
             x = x0 + 4
-            for value, width in zip(row, widths):
-                text = str(value)
-                if len(text) > max(8, width // 4):
-                    text = text[: max(8, width // 4) - 1] + "…"
-                self.text(x, self.y - 8, text, 7, "0.08 0.12 0.18")
+            for lines, width in zip(wrapped_cells, widths):
+                for line_index, line in enumerate(lines):
+                    self.text(x, self.y - 8 - line_index * 9, line, 7, "0.08 0.12 0.18")
                 x += width
-            self.y -= row_h
+            self.y -= current_row_h
         self.y -= 12
 
     def build(self) -> bytes:
@@ -205,6 +228,31 @@ def build_report_pdf(summary: dict, user: str, report_range: str) -> bytes:
     return pdf.build()
 
 
+def object_display_names(item: dict) -> str:
+    labels = {
+        "persona": "Persona",
+        "vehiculo": "Vehículo",
+        "maquinaria": "Maquinaria",
+        "cono_seguridad": "Cono de Seguridad",
+    }
+    objects = item.get("detected_objects") or [
+        value for value in item.get("detected_classes", []) if value in labels
+    ]
+    return ", ".join(labels.get(value, str(value).replace("_", " ").title()) for value in objects)
+
+
+def epp_display_names(values: list[str]) -> str:
+    labels = {
+        "casco": "Casco",
+        "chaleco": "Chaleco",
+        "mascarilla": "Mascarilla",
+        "botas": "Botas",
+        "guantes": "Guantes",
+        "lentes": "Lentes",
+    }
+    return ", ".join(labels.get(value, str(value).replace("_", " ").title()) for value in values)
+
+
 def build_detections_pdf(items: list[dict], user: str, title: str = "Detalle de infracciones") -> bytes:
     pdf = SimplePdf(title, user)
     pdf.header()
@@ -220,13 +268,14 @@ def build_detections_pdf(items: list[dict], user: str, title: str = "Detalle de 
             item.get("camera_code") or item.get("camera_id") or "",
             item.get("area_name") or item.get("location") or "",
             format_datetime(item.get("created_at") or item.get("timestamp")),
-            ", ".join(item.get("missing_epps", [])),
+            epp_display_names(item.get("missing_epps", [])),
+            object_display_names(item),
             item.get("severity", ""),
             item.get("status", "Nueva"),
         ]
         for item in items
     ]
-    pdf.table("Detalle de infracciones", ["ID", "Cámara", "Ubicación", "Fecha/Hora", "EPP", "Sev.", "Estado"], rows, [54, 60, 108, 86, 100, 42, 54], 1000)
+    pdf.table("Detalle de infracciones", ["ID", "Cámara", "Ubicación", "Fecha/Hora", "EPP", "Objetos", "Sev.", "Estado"], rows, [42, 48, 54, 80, 72, 126, 34, 42], 1000)
     pdf.conclusions(detection_conclusions(items))
     return pdf.build()
 
@@ -281,7 +330,7 @@ def detection_conclusions(items: list[dict]) -> list[str]:
         f"Se {_plural(high, 'identificó', 'identificaron')} {high} {_plural(high, 'evento', 'eventos')} de severidad Alta.",
     ]
     if top_epp:
-        conclusions.append(f"El EPP con mayor incumplimiento fue {top_epp[0]} con {top_epp[1]} {_plural(top_epp[1], 'ocurrencia', 'ocurrencias')}.")
+        conclusions.append(f"El EPP con mayor incumplimiento fue {epp_display_names([top_epp[0]])} con {top_epp[1]} {_plural(top_epp[1], 'ocurrencia', 'ocurrencias')}.")
     conclusions.append("Se recomienda reforzar la supervisión en las áreas con mayor incidencia.")
     return conclusions
 
@@ -306,7 +355,7 @@ def _styles() -> str:
 <fills count="5"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF0B1F35"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF1F4E79"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFEAF2F8"/></patternFill></fill></fills>
 <borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"><color rgb="FFD9E2EC"/></left><right style="thin"><color rgb="FFD9E2EC"/></right><top style="thin"><color rgb="FFD9E2EC"/></top><bottom style="thin"><color rgb="FFD9E2EC"/></bottom></border></borders>
 <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
-<cellXfs count="5"><xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0"/><xf numFmtId="0" fontId="2" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1"><alignment horizontal="center"/></xf><xf numFmtId="0" fontId="1" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1"><alignment horizontal="center"/></xf><xf numFmtId="0" fontId="0" fillId="4" borderId="1" xfId="0" applyFill="1"/><xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0"><alignment horizontal="center"/></xf></cellXfs>
+<cellXfs count="5"><xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0"><alignment wrapText="1"/></xf><xf numFmtId="0" fontId="2" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1"><alignment horizontal="center" wrapText="1"/></xf><xf numFmtId="0" fontId="1" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1"><alignment horizontal="center" wrapText="1"/></xf><xf numFmtId="0" fontId="0" fillId="4" borderId="1" xfId="0" applyFill="1"><alignment wrapText="1"/></xf><xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0"><alignment horizontal="center" wrapText="1"/></xf></cellXfs>
 <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
 </styleSheet>"""
 
@@ -404,14 +453,15 @@ def build_report_xlsx(summary: dict, user: str, report_range: str) -> bytes:
 
 def build_detections_xlsx(items: list[dict], user: str) -> bytes:
     generated = format_datetime(datetime.now(UTC))
-    headers = ["ID", "Cámara", "Ubicación", "Fecha/Hora", "EPP faltantes", "Severidad", "Estado"]
+    headers = ["ID", "Cámara", "Ubicación", "Fecha/Hora", "EPP faltantes", "Objetos detectados", "Severidad", "Estado"]
     data_rows = [
         [
             item.get("id", ""),
             item.get("camera_code") or item.get("camera_id") or "",
             item.get("area_name") or item.get("location") or "",
             format_datetime(item.get("created_at") or item.get("timestamp")),
-            ", ".join(item.get("missing_epps", [])),
+            epp_display_names(item.get("missing_epps", [])),
+            object_display_names(item),
             item.get("severity", ""),
             item.get("status", "Nueva"),
         ]

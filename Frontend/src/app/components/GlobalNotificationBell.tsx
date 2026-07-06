@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Bell, Check, CheckCheck, Trash2 } from 'lucide-react';
 import { useAlerts } from '../contexts/AlertContext';
+import { formatEppList } from '../utils/labels';
 
 export function GlobalNotificationBell() {
   const [open, setOpen] = useState(false);
@@ -50,7 +51,7 @@ export function GlobalNotificationBell() {
                         {item.repetitions > 1 && <span className="ml-2 text-xs text-red-300">x{item.repetitions}</span>}
                       </p>
                       <p className="text-xs text-gray-400 truncate">{item.location}</p>
-                      <p className="text-xs text-red-400 mt-1">{item.missingEpps.join(', ')}</p>
+                      <p className="text-xs text-red-400 mt-1">{formatEppList(item.missingEpps)}</p>
                       <p className="text-xs text-gray-500 mt-1">{new Date(item.lastDetectedAt).toLocaleString()}</p>
                     </div>
                     {!item.read && (

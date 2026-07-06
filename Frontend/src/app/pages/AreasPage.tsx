@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { MapPin, Plus, Edit, Trash2, Search, X, Shield } from 'lucide-react';
+import { MapPin, Plus, Edit, Trash2, Search, X, Shield, Box } from 'lucide-react';
 import { toast } from 'sonner';
 import { ApiArea, createArea, deleteArea, getAreas, updateArea } from '../services/api';
 
@@ -8,6 +8,7 @@ interface AreaData {
   name: string;
   description: string;
   requiredEPPs: string[];
+  allowedObjects: string[];
 }
 
 function fromApiArea(area: ApiArea): AreaData {
@@ -16,6 +17,7 @@ function fromApiArea(area: ApiArea): AreaData {
     name: area.name,
     description: area.description,
     requiredEPPs: area.required_epps,
+    allowedObjects: area.allowed_objects ?? [],
   };
 }
 
@@ -29,23 +31,40 @@ export function AreasPage() {
   const [formData, setFormData] = useState({
     name: '',
     description: '',
-    requiredEPPs: [] as string[]
+    requiredEPPs: [] as string[],
+    allowedObjects: [] as string[],
   });
 
   const eppOptions = [
     { id: 'casco', label: 'Casco' },
     { id: 'chaleco', label: 'Chaleco' },
-    { id: 'botas', label: 'Botas de Seguridad' },
+    { id: 'mascarilla', label: 'Mascarilla' },
+    { id: 'botas', label: 'Botas' },
     { id: 'guantes', label: 'Guantes' },
-    { id: 'lentes', label: 'Lentes de Protección' },
+    { id: 'lentes', label: 'Lentes' },
   ];
 
   const eppLabels: Record<string, string> = {
     casco: 'Casco',
     chaleco: 'Chaleco',
+    mascarilla: 'Mascarilla',
     botas: 'Botas',
     guantes: 'Guantes',
     lentes: 'Lentes'
+  };
+
+  const objectOptions = [
+    { id: 'persona', label: 'Persona' },
+    { id: 'vehiculo', label: 'Vehículo' },
+    { id: 'maquinaria', label: 'Maquinaria' },
+    { id: 'cono_seguridad', label: 'Cono de Seguridad' },
+  ];
+
+  const objectLabels: Record<string, string> = {
+    persona: 'Persona',
+    vehiculo: 'Vehículo',
+    maquinaria: 'Maquinaria',
+    cono_seguridad: 'Cono de Seguridad',
   };
 
   const loadAreas = async () => {
@@ -66,7 +85,7 @@ export function AreasPage() {
 
   const handleCreate = () => {
     setEditingArea(null);
-    setFormData({ name: '', description: '', requiredEPPs: [] });
+    setFormData({ name: '', description: '', requiredEPPs: [], allowedObjects: [] });
     setShowModal(true);
   };
 
@@ -93,6 +112,7 @@ export function AreasPage() {
           name: formData.name,
           description: formData.description,
           required_epps: formData.requiredEPPs as ApiArea['required_epps'],
+          allowed_objects: formData.allowedObjects as ApiArea['allowed_objects'],
         });
         setAreas(areas.map(a => a.id === editingArea.id ? fromApiArea(updated) : a));
         toast.success('Área actualizada correctamente');
@@ -101,6 +121,7 @@ export function AreasPage() {
           name: formData.name,
           description: formData.description,
           required_epps: formData.requiredEPPs as ApiArea['required_epps'],
+          allowed_objects: formData.allowedObjects as ApiArea['allowed_objects'],
         });
         setAreas([...areas, fromApiArea(created)]);
         toast.success('Área creada correctamente');
@@ -133,6 +154,20 @@ export function AreasPage() {
       setFormData({
         ...formData,
         requiredEPPs: [...formData.requiredEPPs, epp]
+      });
+    }
+  };
+
+  const toggleObject = (objectName: string) => {
+    if (formData.allowedObjects.includes(objectName)) {
+      setFormData({
+        ...formData,
+        allowedObjects: formData.allowedObjects.filter((item) => item !== objectName)
+      });
+    } else {
+      setFormData({
+        ...formData,
+        allowedObjects: [...formData.allowedObjects, objectName]
       });
     }
   };
@@ -250,6 +285,23 @@ export function AreasPage() {
                   ))}
                 </div>
               </div>
+
+              <div className="mt-4">
+                <p className="text-gray-400 text-xs mb-2">Objetos permitidos para monitoreo:</p>
+                <div className="flex flex-wrap gap-2">
+                  {area.allowedObjects.length === 0 ? (
+                    <span className="text-gray-500 text-xs">Sin objetos seleccionados</span>
+                  ) : area.allowedObjects.map((objectName) => (
+                    <span
+                      key={objectName}
+                      className="bg-purple-500/20 text-purple-300 text-xs px-3 py-1 rounded-full flex items-center gap-1"
+                    >
+                      <Box className="w-3 h-3" />
+                      {objectLabels[objectName] ?? objectName}
+                    </span>
+                  ))}
+                </div>
+              </div>
             </div>
           ))}
         </div>
@@ -314,6 +366,29 @@ export function AreasPage() {
                         <div className="flex items-center gap-2 flex-1">
                           <Shield className="w-4 h-4 text-blue-400" />
                           <span className="text-white">{epp.label}</span>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-gray-400 text-sm mb-3">Objetos permitidos para monitoreo</label>
+                  <div className="space-y-2">
+                    {objectOptions.map((objectName) => (
+                      <label
+                        key={objectName.id}
+                        className="flex items-center gap-3 bg-gray-800 hover:bg-gray-700 p-3 rounded-lg cursor-pointer transition-colors"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={formData.allowedObjects.includes(objectName.id)}
+                          onChange={() => toggleObject(objectName.id)}
+                          className="w-5 h-5 rounded bg-gray-700 border-gray-600 text-purple-600 focus:ring-purple-500 focus:ring-offset-gray-900"
+                        />
+                        <div className="flex items-center gap-2 flex-1">
+                          <Box className="w-4 h-4 text-purple-300" />
+                          <span className="text-white">{objectName.label}</span>
                         </div>
                       </label>
                     ))}

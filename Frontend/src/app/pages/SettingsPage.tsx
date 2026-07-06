@@ -3,39 +3,80 @@ import { Settings, Bell, Camera, Shield, Database, Mail, Save } from 'lucide-rea
 import { toast } from 'sonner';
 import { getGeneralSettings, getYoloSettings, updateGeneralSettings, updateYoloSettings, YoloSettings } from '../services/api';
 
+type YoloModel = 'best.pt' | 'best2.pt' | 'best3.pt';
+
+const supportedModels: YoloModel[] = ['best.pt', 'best2.pt', 'best3.pt'];
+
 const classLabels: Record<string, string> = {
   helmet: 'Casco',
   vest: 'Chaleco',
-  person: 'Persona',
+  mask: 'Mascarilla',
   gloves: 'Guantes',
   boots: 'Botas',
   goggles: 'Lentes',
 };
 
 const modelClassOptions: Record<string, string[]> = {
-  'best.pt': ['helmet', 'vest', 'person'],
-  'belst.pt': ['helmet', 'vest', 'gloves', 'boots', 'goggles', 'person'],
-  'bes33t.pt': ['helmet', 'vest', 'person'],
+  'best.pt': ['helmet', 'vest', 'mask'],
+  'best2.pt': ['helmet', 'vest', 'mask'],
+  'best3.pt': ['helmet', 'vest', 'gloves', 'boots', 'goggles'],
 };
 
 const rawModelClasses: Record<string, string[]> = {
-  'best.pt': ['Hardhat', 'Safety Vest', 'Person', 'NO-Hardhat', 'NO-Safety Vest', 'NO-Mask'],
-  'belst.pt': ['helmet', 'gloves', 'vest', 'boots', 'goggles', 'no_helmet', 'no_gloves', 'no_boots', 'no_goggle'],
-  'bes33t.pt': ['Hardhat', 'Safety Vest', 'Person', 'NO-Hardhat', 'NO-Safety Vest', 'NO-Mask'],
+  'best.pt': ['Hardhat', 'Mask', 'NO-Hardhat', 'NO-Mask', 'NO-Safety Vest', 'Person', 'Safety Cone', 'Safety Vest', 'machinery', 'vehicle'],
+  'best2.pt': ['Hardhat', 'Mask', 'NO-Hardhat', 'NO-Mask', 'NO-Safety Vest', 'Person', 'Safety Cone', 'Safety Vest', 'machinery', 'vehicle'],
+  'best3.pt': ['helmet', 'gloves', 'vest', 'boots', 'goggles', 'none', 'Person', 'no_helmet', 'no_goggle', 'no_gloves', 'no_boots'],
+};
+
+const rawClassDisplayLabels: Record<string, string> = {
+  Hardhat: 'Casco',
+  helmet: 'Casco',
+  'NO-Hardhat': 'Sin Casco',
+  no_helmet: 'Sin Casco',
+  'Safety Vest': 'Chaleco',
+  vest: 'Chaleco',
+  'NO-Safety Vest': 'Sin Chaleco',
+  Mask: 'Mascarilla',
+  'NO-Mask': 'Sin Mascarilla',
+  gloves: 'Guantes',
+  no_gloves: 'Sin Guantes',
+  boots: 'Botas',
+  no_boots: 'Sin Botas',
+  goggles: 'Lentes',
+  no_goggle: 'Sin Lentes',
+  Person: 'Persona',
+  'Safety Cone': 'Cono de Seguridad',
+  machinery: 'Maquinaria',
+  vehicle: 'Vehículo',
+  none: 'Sin EPP',
+};
+
+const modelObjectOptions: Record<string, string[]> = {
+  'best.pt': ['persona', 'vehiculo', 'maquinaria', 'cono_seguridad'],
+  'best2.pt': ['persona', 'vehiculo', 'maquinaria', 'cono_seguridad'],
+  'best3.pt': ['persona'],
+};
+
+const objectLabels: Record<string, string> = {
+  persona: 'Persona',
+  vehiculo: 'Vehículo',
+  maquinaria: 'Maquinaria',
+  cono_seguridad: 'Cono de Seguridad',
 };
 
 const recommendedSensitivity: Record<string, number> = {
   'best.pt': 50,
-  'belst.pt': 5,
-  'bes33t.pt': 20,
+  'best2.pt': 50,
+  'best3.pt': 5,
 };
 
 export function SettingsPage() {
-  const [activeModel, setActiveModel] = useState<'best.pt' | 'belst.pt' | 'bes33t.pt'>('best.pt');
+  const [activeModel, setActiveModel] = useState<YoloModel>('best.pt');
   const [detectionSensitivity, setDetectionSensitivity] = useState(50);
-  const [enabledClasses, setEnabledClasses] = useState<string[]>(['helmet', 'vest', 'person']);
+  const [enabledClasses, setEnabledClasses] = useState<string[]>(['helmet', 'vest', 'mask']);
+  const [enabledObjects, setEnabledObjects] = useState<string[]>(['persona', 'vehiculo', 'maquinaria', 'cono_seguridad']);
   const [availableClasses, setAvailableClasses] = useState<string[]>([]);
-  const [availableModels, setAvailableModels] = useState<string[]>(['best.pt', 'belst.pt', 'bes33t.pt']);
+  const [availableModels, setAvailableModels] = useState<string[]>(supportedModels);
   const [recommendedThreshold, setRecommendedThreshold] = useState(50);
   const [detectionEnabled, setDetectionEnabled] = useState(true);
   const [alarmSoundEnabled, setAlarmSoundEnabled] = useState(true);
@@ -47,14 +88,31 @@ export function SettingsPage() {
   const [saving, setSaving] = useState(false);
 
   const visibleClassOptions = useMemo(() => modelClassOptions[activeModel] ?? modelClassOptions['best.pt'], [activeModel]);
+  const visibleObjectOptions = useMemo(() => modelObjectOptions[activeModel] ?? [], [activeModel]);
+
+  const normalizeModel = (model: string): YoloModel => {
+    return supportedModels.includes(model as YoloModel) ? (model as YoloModel) : 'best.pt';
+  };
 
   const applySettings = (settings: YoloSettings) => {
-    setActiveModel(settings.active_model);
+    const nextModel = normalizeModel(settings.active_model);
+    if (nextModel !== settings.active_model) {
+      toast.warning(`El modelo ${settings.active_model} ya no está disponible. Se usará best.pt.`);
+    }
+    const nextOptions = modelClassOptions[nextModel] ?? modelClassOptions['best.pt'];
+    const nextObjectOptions = modelObjectOptions[nextModel] ?? [];
+    const nextEnabledClasses = settings.enabled_classes.filter((className) => nextOptions.includes(className));
+    const nextEnabledObjects = (settings.enabled_objects ?? nextObjectOptions).filter((objectName) => nextObjectOptions.includes(objectName));
+    if (nextOptions.includes('mask') && !nextEnabledClasses.includes('mask')) {
+      nextEnabledClasses.push('mask');
+    }
+    setActiveModel(nextModel);
     setDetectionSensitivity(Math.round(settings.confidence_threshold * 100));
-    setEnabledClasses(settings.enabled_classes);
+    setEnabledClasses(nextEnabledClasses.length > 0 ? nextEnabledClasses : nextOptions);
+    setEnabledObjects(nextEnabledObjects);
     setDetectionEnabled(settings.detection_enabled);
-    setAvailableModels(settings.available_models);
-    setAvailableClasses(settings.available_classes);
+    setAvailableModels(settings.available_models.filter((model) => supportedModels.includes(model as YoloModel)));
+    setAvailableClasses(settings.available_classes.length > 0 ? settings.available_classes : rawModelClasses[nextModel]);
     setRecommendedThreshold(Math.round(settings.recommended_threshold * 100));
   };
 
@@ -82,15 +140,27 @@ export function SettingsPage() {
     });
   };
 
-  const handleModelChange = (model: 'best.pt' | 'belst.pt' | 'bes33t.pt') => {
+  const handleObjectToggle = (objectName: string, checked: boolean) => {
+    setEnabledObjects((current) => {
+      if (checked) return Array.from(new Set([...current, objectName]));
+      return current.filter((item) => item !== objectName);
+    });
+  };
+
+  const handleModelChange = (model: YoloModel) => {
     setActiveModel(model);
     setRecommendedThreshold(recommendedSensitivity[model] ?? 50);
     const nextOptions = modelClassOptions[model] ?? [];
+    const nextObjectOptions = modelObjectOptions[model] ?? [];
     setAvailableClasses(rawModelClasses[model] ?? []);
     setEnabledClasses((current) => {
       const nextEnabled = current.filter((item) => nextOptions.includes(item));
+      if (nextOptions.includes('mask') && !nextEnabled.includes('mask')) {
+        nextEnabled.push('mask');
+      }
       return nextEnabled.length > 0 ? nextEnabled : nextOptions.slice(0, 3);
     });
+    setEnabledObjects((current) => current.filter((item) => nextObjectOptions.includes(item)));
   };
 
   const handleSave = async () => {
@@ -100,6 +170,7 @@ export function SettingsPage() {
         active_model: activeModel,
         confidence_threshold: detectionSensitivity / 100,
         enabled_classes: enabledClasses,
+        enabled_objects: enabledObjects,
         detection_enabled: detectionEnabled,
       });
       const general = await updateGeneralSettings({
@@ -146,7 +217,7 @@ export function SettingsPage() {
               <label className="block text-white mb-2">Modelo Activo</label>
               <select
                 value={activeModel}
-                onChange={(e) => handleModelChange(e.target.value as 'best.pt' | 'belst.pt' | 'bes33t.pt')}
+                onChange={(e) => handleModelChange(e.target.value as YoloModel)}
                 className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-blue-500 transition-colors"
               >
                 {availableModels.map((model) => (
@@ -208,6 +279,23 @@ export function SettingsPage() {
               </div>
             </div>
 
+            <div>
+              <label className="block text-white mb-2">Objetos Detectados</label>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {visibleObjectOptions.map((objectName) => (
+                  <label key={objectName} className="flex items-center gap-2 bg-gray-800 p-3 rounded-lg cursor-pointer hover:bg-gray-700 transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={enabledObjects.includes(objectName)}
+                      onChange={(e) => handleObjectToggle(objectName, e.target.checked)}
+                      className="w-4 h-4 rounded bg-gray-700 border-gray-600 text-blue-600"
+                    />
+                    <span className="text-white text-sm">{objectLabels[objectName] ?? objectName}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
             <div className="bg-gray-800/60 rounded-lg p-4">
               <div className="flex justify-between text-sm mb-3">
                 <span className="text-gray-400">Modelo activo</span>
@@ -221,7 +309,7 @@ export function SettingsPage() {
               <div className="flex flex-wrap gap-2">
                 {availableClasses.map((className) => (
                   <span key={className} className="bg-blue-500/20 text-blue-300 text-xs px-2 py-1 rounded">
-                    {className}
+                    {rawClassDisplayLabels[className] ?? className}
                   </span>
                 ))}
               </div>

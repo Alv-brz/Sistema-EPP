@@ -45,6 +45,7 @@ class DetectionRepository:
         search: str | None = None,
         area: str | None = None,
         epp: str | None = None,
+        detected_object: str | None = None,
         date_from: datetime | None = None,
         date_to: datetime | None = None,
         violations_only: bool = False,
@@ -66,6 +67,7 @@ class DetectionRepository:
                 {"location": pattern},
                 {"missing_epps": pattern},
                 {"detected_classes": pattern},
+                {"detected_objects": pattern},
             ]
             if ObjectId.is_valid(search):
                 search_filters.append({"_id": ObjectId(search)})
@@ -78,6 +80,8 @@ class DetectionRepository:
             query.setdefault("$and", []).append({"$or": [{"area_name": area_pattern}, {"location": area_pattern}]})
         if epp:
             query["missing_epps"] = epp
+        if detected_object:
+            query.setdefault("$and", []).append({"$or": [{"detected_objects": detected_object}, {"detected_classes": detected_object}]})
         if violations_only:
             query["missing_epps.0"] = {"$exists": True}
         if date_from or date_to:

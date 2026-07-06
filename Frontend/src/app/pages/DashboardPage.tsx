@@ -7,6 +7,9 @@ import {
   TrendingUp,
   TrendingDown,
   Users,
+  Truck,
+  Factory,
+  TrafficCone,
   Shield,
   Activity,
   ArrowRight,
@@ -15,6 +18,7 @@ import {
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { ApiDetection, getDashboardStats } from '../services/api';
+import { formatEppList } from '../utils/labels';
 
 export function DashboardPage() {
   const [stats, setStats] = useState({
@@ -25,6 +29,9 @@ export function DashboardPage() {
     compliance: 100,
     peopleDetected: 0,
     peopleCurrentlyInArea: 0,
+    vehiclesDetected: 0,
+    machineryDetected: 0,
+    conesDetected: 0,
   });
 
   const [recentViolations, setRecentViolations] = useState<ApiDetection[]>([]);
@@ -43,6 +50,9 @@ export function DashboardPage() {
           compliance: data.compliance,
           peopleDetected: data.people_detected_today,
           peopleCurrentlyInArea: data.people_currently_in_area,
+          vehiclesDetected: data.vehicles_detected_today,
+          machineryDetected: data.machinery_detected_today,
+          conesDetected: data.cones_detected_today,
         });
         setRecentViolations(data.recent_violations);
       } finally {
@@ -152,6 +162,29 @@ export function DashboardPage() {
           </div>
         </div>
 
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+          <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 text-white">
+            <Users className="w-7 h-7 text-blue-400 mb-3" />
+            <p className="text-2xl font-bold">{stats.peopleDetected}</p>
+            <p className="text-gray-400 text-sm">Personas detectadas</p>
+          </div>
+          <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 text-white">
+            <Truck className="w-7 h-7 text-sky-400 mb-3" />
+            <p className="text-2xl font-bold">{stats.vehiclesDetected}</p>
+            <p className="text-gray-400 text-sm">Vehículos detectados</p>
+          </div>
+          <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 text-white">
+            <Factory className="w-7 h-7 text-purple-400 mb-3" />
+            <p className="text-2xl font-bold">{stats.machineryDetected}</p>
+            <p className="text-gray-400 text-sm">Maquinaria detectada</p>
+          </div>
+          <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 text-white">
+            <TrafficCone className="w-7 h-7 text-orange-400 mb-3" />
+            <p className="text-2xl font-bold">{stats.conesDetected}</p>
+            <p className="text-gray-400 text-sm">Conos detectados</p>
+          </div>
+        </div>
+
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Quick Actions */}
           <div className="lg:col-span-2">
@@ -200,7 +233,7 @@ export function DashboardPage() {
                           <p className="text-gray-400 text-sm">{violation.area_name ?? violation.location ?? 'Sin ubicación'}</p>
                           <div className="mt-1">
                             <span className="text-xs bg-red-500/20 text-red-400 px-2 py-1 rounded">
-                              {violation.missing_epps.join(', ') || 'EPP no registrado'}
+                              {formatEppList(violation.missing_epps) || 'EPP no registrado'}
                             </span>
                           </div>
                         </div>
@@ -258,7 +291,7 @@ export function DashboardPage() {
             <div className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl p-6 text-white">
               <Users className="w-10 h-10 mb-4 opacity-80" />
               <p className="text-3xl font-bold mb-1">{stats.peopleDetected}</p>
-              <p className="text-purple-100 text-sm">Personal Detectado Hoy</p>
+              <p className="text-purple-100 text-sm">Personas detectadas hoy</p>
               <div className="mt-4 pt-4 border-t border-purple-400/30">
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-purple-100">En área actualmente</span>

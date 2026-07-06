@@ -1,7 +1,7 @@
 import { AlertTriangle, Camera, CheckCircle, Maximize2 } from 'lucide-react';
 
 interface Detection {
-  type: 'casco' | 'chaleco' | 'botas' | 'guantes' | 'lentes';
+  type: 'casco' | 'chaleco' | 'mascarilla' | 'botas' | 'guantes' | 'lentes';
   status: 'correcto' | 'faltante';
   confidence: number;
 }

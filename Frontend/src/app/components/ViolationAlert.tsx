@@ -1,4 +1,5 @@
 import { AlertTriangle, X, MapPin, Clock } from 'lucide-react';
+import { eppLabel } from '../utils/labels';
 
 interface Violation {
   id: string;
@@ -69,7 +70,7 @@ export function ViolationAlert({ violation, onDismiss }: ViolationAlertProps) {
               key={idx}
               className="bg-red-500 text-white text-xs px-3 py-1 rounded-full font-medium"
             >
-              {epp.toUpperCase()}
+              {eppLabel(epp)}
             </span>
           ))}
         </div>

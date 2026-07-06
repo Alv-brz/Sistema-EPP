@@ -2,6 +2,7 @@ import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, 
 import { toast } from 'sonner';
 import { getDetectionWebSocketUrl, getGeneralSettings } from '../services/api';
 import { useAuth } from './AuthContext';
+import { formatEppList } from '../utils/labels';
 
 const NOTIFICATIONS_KEY = 'epp_notifications';
 const ACTIVE_ALERTS_KEY = 'epp_active_alerts';
@@ -240,7 +241,7 @@ export function AlertProvider({ children }: { children: ReactNode }) {
       setActiveAlerts(limitedActiveAlerts);
 
       toast.error('Infracción detectada', {
-        description: `${displayedAlert.cameraId} - ${displayedAlert.location} - ${displayedAlert.missingEpps.join(', ')} - ${new Date(displayedAlert.lastDetectedAt).toLocaleTimeString()}`,
+        description: `${displayedAlert.cameraId} - ${displayedAlert.location} - ${formatEppList(displayedAlert.missingEpps)} - ${new Date(displayedAlert.lastDetectedAt).toLocaleTimeString()}`,
       });
       playAlarm().catch(() => undefined);
     },

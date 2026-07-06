@@ -73,8 +73,8 @@ Cambiar estas credenciales y `JWT_SECRET_KEY` antes de usar en produccion.
 Modelos soportados:
 
 - `Detector/best.pt`
-- `Detector/belst.pt`
-- `Detector/bes33t.pt`
+- `Detector/best2.pt`
+- `Detector/best3.pt`
 
 El modelo activo, umbral y clases habilitadas se configuran desde la pantalla de configuracion o desde MongoDB.
 
@@ -84,4 +84,3 @@ El modelo activo, umbral y clases habilitadas se configuran desde la pantalla de
 - `PROJECT_STATUS.md`: estado actual, pendientes, riesgos y recomendaciones.
 - `Backend/README.md`: guia breve del backend.
 - `README.txt`: guia original de instalacion y ejecucion.
-

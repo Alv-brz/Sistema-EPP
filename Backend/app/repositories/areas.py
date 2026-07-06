@@ -9,6 +9,7 @@ def serialize_area(document: dict | None) -> dict | None:
         return None
     document = dict(document)
     document["id"] = str(document.pop("_id"))
+    document["allowed_objects"] = document.get("allowed_objects", [])
     return document
 
 
@@ -32,6 +33,7 @@ class AreaRepository:
             "name": data["name"],
             "description": data.get("description", ""),
             "required_epps": [item.value if hasattr(item, "value") else item for item in data.get("required_epps", [])],
+            "allowed_objects": [item.value if hasattr(item, "value") else item for item in data.get("allowed_objects", [])],
             "created_at": now,
             "updated_at": now,
         }
@@ -48,6 +50,7 @@ class AreaRepository:
             "name": data["name"],
             "description": data.get("description", ""),
             "required_epps": [item.value if hasattr(item, "value") else item for item in data.get("required_epps", [])],
+            "allowed_objects": [item.value if hasattr(item, "value") else item for item in data.get("allowed_objects", [])],
             "updated_at": datetime.now(UTC),
         }
         await self.collection.update_one({"_id": ObjectId(area_id)}, {"$set": update_data})

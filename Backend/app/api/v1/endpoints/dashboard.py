@@ -24,10 +24,29 @@ def person_count(detections: list[dict]) -> int:
     return sum(1 for item in detections if str(item.get("label", "")).lower() in {"person", "persona"})
 
 
+def detected_objects(item: dict) -> list[str]:
+    objects = item.get("detected_objects")
+    if isinstance(objects, list) and objects:
+        return [str(value) for value in objects]
+    object_labels = {"persona", "vehiculo", "maquinaria", "cono_seguridad"}
+    classes = item.get("detected_classes", [])
+    return [str(value) for value in classes if str(value) in object_labels]
+
+
+def object_count(items: list[dict], object_name: str) -> int:
+    count = 0
+    for item in items:
+        detections = item.get("detections", [])
+        detection_count = sum(1 for detection in detections if str(detection.get("label", "")) == object_name)
+        count += detection_count if detection_count else int(object_name in detected_objects(item))
+    return count
+
+
 def epp_display_name(epp: str) -> str:
     return {
         "casco": "Casco",
         "chaleco": "Chaleco",
+        "mascarilla": "Mascarilla",
         "guantes": "Guantes",
         "botas": "Botas",
         "lentes": "Lentes",
@@ -45,7 +64,7 @@ def serialize_detection(document: dict) -> dict:
 
 
 def detection_area_name(item: dict) -> str:
-    return item.get("area_name") or item.get("location") or "Sin ubicacion"
+    return item.get("area_name") or item.get("location") or "Sin ubicación"
 
 
 def dated_filename(prefix: str, extension: str) -> str:
@@ -108,7 +127,7 @@ async def build_report_response(db: AsyncIOMotorDatabase, report_range: str) -> 
             ReportMetric(label="Infracciones Detectadas", value=str(len(violations)), change="0%", trend="up"),
             ReportMetric(label="Nivel de Cumplimiento", value=f"{compliance}%", change="0%", trend="down"),
             ReportMetric(label="Zonas Monitoreadas", value=str(total_cameras), change="0", trend="up"),
-            ReportMetric(label="Trabajadores Detectados", value=str(people_total), change="0%", trend="up"),
+            ReportMetric(label="Personas Detectadas", value=str(people_total), change="0%", trend="up"),
         ],
         violations_by_day=violations_by_day,
         violations_by_epp=violations_by_epp,
@@ -128,7 +147,10 @@ async def dashboard_stats(
     todays_items = await db.detections.find({"created_at": {"$gte": today}}).to_list(length=1000)
     total_violations_today = sum(1 for item in todays_items if item.get("missing_epps"))
     active_alerts = sum(1 for item in todays_items if item.get("severity") in {"medium", "high"})
-    people_detected_today = sum(person_count(item.get("detections", [])) for item in todays_items)
+    people_detected_today = object_count(todays_items, "persona") or sum(person_count(item.get("detections", [])) for item in todays_items)
+    vehicles_detected_today = object_count(todays_items, "vehiculo")
+    machinery_detected_today = object_count(todays_items, "maquinaria")
+    cones_detected_today = object_count(todays_items, "cono_seguridad")
     compliance = 100 if not todays_items else round(((len(todays_items) - total_violations_today) / len(todays_items)) * 100)
     recent = await db.detections.find({"missing_epps.0": {"$exists": True}}).sort("created_at", -1).limit(5).to_list(length=5)
     return DashboardStats(
@@ -139,6 +161,9 @@ async def dashboard_stats(
         compliance=compliance,
         people_detected_today=people_detected_today,
         people_currently_in_area=people_detected_today,
+        vehicles_detected_today=vehicles_detected_today,
+        machinery_detected_today=machinery_detected_today,
+        cones_detected_today=cones_detected_today,
         recent_violations=[to_public(serialize_detection(item)) for item in recent],
     )
 
@@ -187,9 +212,9 @@ async def export_reports_csv(
     summary = (await build_report_response(db, report_range)).model_dump()
     rows: list[list[object]] = [
         ["Rango", report_range],
-        ["Seccion", "Etiqueta", "Valor"],
-        *[["Metricas", item["label"], item["value"]] for item in summary["stats"]],
-        *[["Infracciones por dia", item["day"], item["violations"]] for item in summary["violations_by_day"]],
+        ["Sección", "Etiqueta", "Valor"],
+        *[["Métricas", item["label"], item["value"]] for item in summary["stats"]],
+        *[["Infracciones por día", item["day"], item["violations"]] for item in summary["violations_by_day"]],
         *[["Infracciones por EPP", item["name"], item["value"]] for item in summary["violations_by_epp"]],
         *[["Cumplimiento por zona", item["area"], f'{item["compliance"]}%'] for item in summary["compliance_by_area"]],
     ]
