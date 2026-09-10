@@ -89,3 +89,9 @@ El modelo activo, umbral y clases habilitadas se configuran desde la pantalla de
 
 Proyecto desarrollado con fines académicos para la Universidad de Huánuco.
 
+
+# Autor
+
+Alvaro Berrospi Albornoz
+
+
