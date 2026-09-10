@@ -84,3 +84,8 @@ El modelo activo, umbral y clases habilitadas se configuran desde la pantalla de
 - `PROJECT_STATUS.md`: estado actual, pendientes, riesgos y recomendaciones.
 - `Backend/README.md`: guia breve del backend.
 - `README.txt`: guia original de instalacion y ejecucion.
+
+# Licencia
+
+Proyecto desarrollado con fines académicos para la Universidad de Huánuco.
+
